@@ -164,11 +164,11 @@ const decide = (autoFail, answerFail, usesAnswers = true) => {
   const found = [];
   const fix = [];
   const problems = [];
-  if (open.length) problems.push(`${plural(open.length, 'public endpoint')} without authentication`);
-  if (editorOpen) problems.push('editor reachable from anywhere');
-  if (cookieInsecure) problems.push('login cookie not marked secure');
+  if (open.length) problems.push(plural(open.length, 'open endpoint'));
+  if (editorOpen) problems.push('editor open to the internet');
+  if (cookieInsecure) problems.push('insecure login cookie');
   const total = open.length + validated.length + secured;
-  let headline = problems.length ? cap(problems.join(', ')) : `${plural(total, 'public endpoint')}, all authenticated`;
+  let headline = problems.length ? cap(problems.join(' · ')) : `${plural(total, 'public endpoint')}, all authenticated`;
   if (workflowsError) { headline = 'Could not list workflows'; found.push(workflowsError); }
   for (const o of open) found.push(`No auth: ${o}`);
   for (const v of validated) found.push(`No auth, checked in the next node: ${v}`);
@@ -203,8 +203,8 @@ const decide = (autoFail, answerFail, usesAnswers = true) => {
   if (scopeBad) fix.push('Swap broad credentials for scoped ones (for example a read-only database user)');
   if (status === 'FAIL' && unused.length) fix.push('Delete credentials nothing uses');
   const headline = status === 'FAIL'
-    ? cap([keyBad && 'encryption key has no off-server copy', scopeBad && 'some credentials are over-scoped'].filter(Boolean).join(', '))
-    : status === 'PASS' ? 'Encryption key kept off the server; credentials scoped' : 'Encryption key storage and credential scopes';
+    ? cap([keyBad && 'no off-server copy of the encryption key', scopeBad && 'over-scoped credentials'].filter(Boolean).join(' · '))
+    : status === 'PASS' ? 'Key stored off the server · credentials scoped' : 'Needs your one-time answers';
   add({ name: 'Credentials', status, headline, found, fix, needsAnswers: status === 'MANUAL' });
 }
 
@@ -231,8 +231,8 @@ const decide = (autoFail, answerFail, usesAnswers = true) => {
     const problems = [];
     if (admins.length > maxAdmins) problems.push(`${admins.length} owners/admins`);
     if (adminsNo2fa.length) problems.push(`${plural(adminsNo2fa.length, 'admin')} without 2FA`);
-    if (shared.length) problems.push(plural(shared.length, 'shared-looking login'));
-    headline = problems.length ? cap(problems.join(', ')) : `${plural(admins.length, 'owner/admin', 'owners/admins')}, all with 2FA`;
+    if (shared.length) problems.push(plural(shared.length, 'shared login'));
+    headline = problems.length ? cap(problems.join(' · ')) : `${plural(admins.length, 'owner/admin', 'owners/admins')}, all with 2FA`;
     found.push(`${plural(admins.length, 'owner/admin', 'owners/admins')} of ${plural(active.length, 'user')}: ${admins.map(who).join(', ')}`);
     if (adminsNo2fa.length) found.push(`No 2FA: ${adminsNo2fa.map(who).join(', ')}`);
     if (shared.length) found.push(`Looks shared: ${shared.map(who).join(', ')}`);
@@ -255,10 +255,10 @@ const decide = (autoFail, answerFail, usesAnswers = true) => {
   const internal = runnerMode === 'internal';
   let status = (envReadable || internal) ? 'FAIL' : (runnerMode === 'external' ? 'PASS' : 'MANUAL');
   const problems = [];
-  if (internal) problems.push('task runners run in internal mode');
-  if (envReadable) problems.push('workflow code can read server environment variables');
-  const headline = problems.length ? cap(problems.join('; '))
-    : status === 'PASS' ? 'External task runners; environment variables blocked'
+  if (internal) problems.push('task runners in internal mode');
+  if (envReadable) problems.push('code can read env variables');
+  const headline = problems.length ? cap(problems.join(' · '))
+    : status === 'PASS' ? 'External task runners · env access blocked'
       : 'Could not detect the task runner mode';
   found.push(runnerMode === 'unknown'
     ? 'Task runner mode: not detectable on this install'
@@ -297,11 +297,12 @@ const decide = (autoFail, answerFail, usesAnswers = true) => {
   if (unused.length) fix.push(`Uninstall ${unused.map((u) => `\`${u}\``).join(', ')}`);
   if (unverifiedOn) fix.push('Set `N8N_UNVERIFIED_PACKAGES_ENABLED=false` so only n8n-verified packages can be installed');
   const problems = [];
-  if (unused.length) problems.push(`${plural(unused.length, 'package')} installed but unused`);
+  if (unused.length) problems.push(plural(unused.length, 'unused package'));
   if (unverifiedOn) problems.push('unverified packages allowed');
-  const headline = problems.length ? cap(problems.join(', '))
+  const headline = problems.length ? cap(problems.join(' · '))
     : off ? 'Community packages are turned off'
-      : pkgs.length ? `${plural(pkgs.length, 'package')}, each used by a published workflow` : 'No community packages installed';
+      : !answers && !off ? 'Needs your one-time answers'
+        : pkgs.length ? `${plural(pkgs.length, 'package')}, all in use` : 'No community packages installed';
   add({ name: 'Community nodes', status, headline, found, fix, needsAnswers: status === 'MANUAL' });
 }
 
@@ -324,8 +325,8 @@ const decide = (autoFail, answerFail, usesAnswers = true) => {
   if (backupBad) fix.push('Back up the database on a schedule, copy it off the server, and restore it on another machine once with the encryption key');
   if (logsBad) fix.push('Pick someone to read the n8n logs every week, or stream them to a tool your team already watches');
   const headline = status === 'FAIL'
-    ? cap([backupBad && 'backup restore never tested', logsBad && 'nobody watches the logs'].filter(Boolean).join(', '))
-    : status === 'PASS' ? 'Restore tested; logs watched' : 'Backups, restores and log review';
+    ? cap([backupBad && 'restore never tested', logsBad && 'logs not reviewed'].filter(Boolean).join(' · '))
+    : status === 'PASS' ? 'Restore tested · logs reviewed' : 'Needs your one-time answers';
   add({ name: 'Recovery and logs', status, headline, found, fix, needsAnswers: status === 'MANUAL' });
 }
 
@@ -341,102 +342,105 @@ const subject = totals.FAIL
 
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+const INK = '#0f172a';
+const MUTED = '#64748b';
+const LINE = '#e8ebf0';
 const STATUS = {
-  FAIL: { fg: '#b42318', bg: '#fef3f2', line: '#f04438', label: 'Fail' },
-  PASS: { fg: '#067647', bg: '#ecfdf3', line: '#17b26a', label: 'Pass' },
-  MANUAL: { fg: '#93370d', bg: '#fffaeb', line: '#f79009', label: 'Needs answers' },
+  FAIL: { dot: '#e5484d', fg: '#c62a2f', bg: '#fdecec', label: 'Fail' },
+  PASS: { dot: '#30a46c', fg: '#18794e', bg: '#e9f6ef', label: 'Pass' },
+  MANUAL: { dot: '#f5a524', fg: '#a35200', bg: '#fff4e0', label: 'Answer' },
 };
 const rich = (s) => esc(s).replace(/`([^`]+)`/g,
-  `<code style="font-family:${MONO};font-size:12px;background:#f2f4f7;border-radius:4px;padding:1px 5px;color:#344054">$1</code>`);
-const link = (href, text) => `<a href="${esc(href)}" style="color:#175cd3;font-weight:600;text-decoration:none">${esc(text)}</a>`;
-const block = (label, lines, mark) => !lines.length ? '' : `
-  <tr><td colspan="2" style="padding:12px 0 0">
-    <div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#98a2b3;padding-bottom:4px">${label}</div>
-    ${lines.map((l) => `<table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-      <td width="18" valign="top" style="font-size:14px;line-height:22px;color:#98a2b3">${mark}</td>
-      <td style="font-size:14px;line-height:22px;color:#344054">${rich(l)}</td></tr></table>`).join('')}
-  </td></tr>`;
+  `<span style="font-family:${MONO};font-size:12.5px;background:#f1f3f6;border-radius:4px;padding:1px 5px;color:#334155">$1</span>`);
+const link = (href, text) => `<a href="${esc(href)}" style="color:#2563eb;font-weight:600;text-decoration:none">${esc(text)}</a>`;
+const pill = (s) => `<span style="display:inline-block;min-width:44px;text-align:center;padding:3px 10px;border-radius:999px;background:${STATUS[s].bg};color:${STATUS[s].fg};font-size:12px;font-weight:600">${STATUS[s].label}</span>`;
 
-const card = (c) => {
-  const s = STATUS[c.status];
-  const ask = c.needsAnswers
-    ? `<tr><td colspan="2" style="padding:12px 0 0;font-size:14px;line-height:22px;color:#344054">n8n can't see this part. ${link(formUrl, 'Answer the one-time questions →')}</td></tr>`
-    : '';
-  return `
-<tr><td style="padding:0 0 12px">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #eaecf0;border-left:4px solid ${s.line};border-radius:10px">
-    <tr><td style="padding:18px 20px">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-        <tr>
-          <td valign="top">
-            <div style="font-size:12px;color:#98a2b3;font-weight:600">${c.n} of 7</div>
-            <div style="font-size:17px;font-weight:700;color:#101828;padding-top:2px">${esc(c.name)}</div>
-          </td>
-          <td valign="top" align="right">
-            <span style="display:inline-block;padding:4px 12px;border-radius:999px;background:${s.bg};color:${s.fg};font-size:12px;font-weight:700;white-space:nowrap">${s.label}</span>
-          </td>
-        </tr>
-        <tr><td colspan="2" style="padding-top:8px;font-size:15px;line-height:22px;color:#101828">${rich(c.headline)}</td></tr>
-        ${block('Found', c.found, '•')}
-        ${c.status === 'FAIL' ? block('Fix', c.fix, '→') : ''}
-        ${ask}
-      </table>
-    </td></tr>
-  </table>
-</td></tr>`;
-};
+// Seven-segment bar, one segment per check, in checklist order.
+const bar = `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="table-layout:fixed"><tr>${checks.map((c, i) =>
+  `<td width="14%" style="padding:0 ${i < checks.length - 1 ? 4 : 0}px 0 0"><div style="height:8px;line-height:8px;font-size:1px;border-radius:4px;background:${STATUS[c.status].dot}">&nbsp;</div></td>`).join('')}</tr></table>`;
 
-const stat = (s, label) => `
-  <td width="33%" style="padding:0 4px">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:${STATUS[s].bg};border-radius:10px">
-      <tr><td align="center" style="padding:14px 8px">
-        <div style="font-size:28px;font-weight:800;line-height:32px;color:${STATUS[s].fg}">${totals[s]}</div>
-        <div style="font-size:12px;font-weight:600;color:${STATUS[s].fg};padding-top:2px">${label}</div>
+const scoreWord = totals.FAIL ? `${totals.FAIL} to fix` : totals.MANUAL ? `${totals.MANUAL} waiting on answers` : 'nothing to fix';
+
+const summaryRows = checks.map((c, i) => `
+  <tr>
+    <td style="padding:14px 0;${i ? `border-top:1px solid ${LINE};` : ''}width:28px;vertical-align:top;font-size:13px;color:#94a3b8;font-weight:600">${c.n}</td>
+    <td style="padding:14px 12px 14px 0;${i ? `border-top:1px solid ${LINE};` : ''}vertical-align:top">
+      <div style="font-size:15px;font-weight:600;color:${INK}">${esc(c.name)}</div>
+      <div style="font-size:13px;line-height:19px;color:${MUTED};padding-top:2px">${rich(c.headline)}</div>
+    </td>
+    <td align="right" style="padding:14px 0;${i ? `border-top:1px solid ${LINE};` : ''}vertical-align:top;white-space:nowrap">${pill(c.status)}</td>
+  </tr>`).join('');
+
+const failing = checks.filter((c) => c.status === 'FAIL');
+const detail = (c) => `
+  <tr><td style="padding:0 0 14px">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border:1px solid ${LINE};border-radius:12px">
+      <tr><td style="padding:18px 20px">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
+          <td style="font-size:16px;font-weight:700;color:${INK}"><span style="color:#94a3b8;font-weight:600">${c.n}&nbsp;&nbsp;</span>${esc(c.name)}</td>
+          <td align="right">${pill('FAIL')}</td>
+        </tr></table>
+        ${c.found.length ? `<div style="padding-top:10px">${c.found.map((f) =>
+          `<div style="font-size:13.5px;line-height:21px;color:#475569;padding:1px 0 1px 14px;text-indent:-14px">·&nbsp;&nbsp;${rich(f)}</div>`).join('')}</div>` : ''}
+        ${c.fix.length ? `<div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border-radius:8px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#94a3b8;padding-bottom:6px">How to fix</div>
+          ${c.fix.map((f, i) => `<table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
+            <td width="20" valign="top" style="font-size:13.5px;line-height:21px;color:${INK};font-weight:700">${i + 1}.</td>
+            <td style="font-size:13.5px;line-height:21px;color:${INK}">${rich(f)}</td></tr></table>`).join('')}
+        </div>` : ''}
       </td></tr>
     </table>
-  </td>`;
-const stats = totals.MANUAL
-  ? stat('FAIL', 'Failed') + stat('PASS', 'Passed') + stat('MANUAL', 'Need answers')
-  : `${stat('FAIL', 'Failed')}${stat('PASS', 'Passed')}`;
+  </td></tr>`;
 
 let banner = '';
 if (!answers) {
-  banner = `n8n can't see a few things, like where the encryption key is kept or whether a backup was ever restored. ${link(formUrl, 'Answer 6 yes/no questions once')} (about 2 minutes) and every scorecard after that is fully scored.`;
+  banner = `<b>${plural(totals.MANUAL, 'check needs', 'checks need')} your answers.</b> n8n can't see a few things, like where the encryption key is kept or whether a backup was ever restored. ${link(formUrl, 'Answer 6 yes/no questions')} once and every scorecard after that is fully scored.`;
 } else if (stale) {
-  banner = `Your answers are from ${fmtDate(answers.answered_at)} (${answerAge} days ago). ${link(formUrl, 'Confirm they are still true')}.`;
+  banner = `<b>Your answers are ${answerAge} days old.</b> They're still used, but things change. ${link(formUrl, 'Confirm them')} (2 minutes).`;
 }
 const bannerHtml = banner ? `
-  <tr><td style="padding:0 0 12px">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#eff8ff;border:1px solid #b2ddff;border-radius:10px">
-      <tr><td style="padding:14px 18px;font-size:14px;line-height:21px;color:#194185">${banner}</td></tr>
+  <tr><td style="padding:0 32px 24px">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#eff6ff;border-radius:10px">
+      <tr><td style="padding:14px 16px;font-size:13.5px;line-height:21px;color:#1e3a8a">${banner}</td></tr>
     </table>
   </td></tr>` : '';
 const answeredLine = answers
-  ? `Answers by ${esc(answers.answered_by || 'an admin')} on ${esc(fmtDate(answers.answered_at))}. ${link(formUrl, 'Update them')} any time.<br>`
+  ? `Your answers: ${esc(answers.answered_by || 'an admin')}, ${esc(fmtDate(answers.answered_at))} · ${link(formUrl, 'update')}<br>`
   : '';
 
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(subject)}</title></head>
-<body style="margin:0;padding:0;background:#f2f4f7;font-family:${FONT}">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#f2f4f7">
-<tr><td align="center" style="padding:28px 12px">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px;font-family:${FONT}">
-  <tr><td style="padding:0 0 16px">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#101828;border-radius:12px">
-      <tr><td style="padding:24px 24px 20px">
-        <div style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#98a2b3">n8n security scorecard</div>
-        <div style="font-size:24px;font-weight:700;color:#ffffff;padding-top:6px">${esc(instance)}</div>
-        <div style="font-size:13px;color:#98a2b3;padding-top:4px">${esc(today)}${version ? ` &nbsp;·&nbsp; n8n ${esc(version)}` : ''} &nbsp;·&nbsp; 7 checks</div>
-      </td></tr>
-      <tr><td style="padding:0 20px 20px">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>${stats}</tr></table>
-      </td></tr>
-    </table>
+<body style="margin:0;padding:0;background:#f4f5f7;font-family:${FONT};-webkit-font-smoothing:antialiased">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#f4f5f7">
+<tr><td align="center" style="padding:32px 12px">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px;background:#ffffff;border:1px solid ${LINE};border-radius:16px;font-family:${FONT}">
+  <tr><td style="padding:28px 32px 0">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
+      <td style="font-size:13px;font-weight:600;color:${MUTED}">n8n security scorecard</td>
+      <td align="right" style="font-size:13px;color:${MUTED}">${esc(today)}</td>
+    </tr></table>
+    <div style="font-size:24px;font-weight:700;color:${INK};padding-top:10px;letter-spacing:-.01em">${esc(instance)}</div>
+    ${version ? `<div style="font-size:13px;color:${MUTED};padding-top:2px">n8n ${esc(version)}</div>` : ''}
+  </td></tr>
+  <tr><td style="padding:24px 32px 28px">
+    <div style="font-size:40px;line-height:44px;font-weight:800;color:${INK};letter-spacing:-.02em">${totals.PASS}<span style="font-size:24px;color:#94a3b8;font-weight:700;letter-spacing:0">/7</span><span style="font-size:15px;font-weight:600;color:${MUTED};letter-spacing:0;padding-left:10px">checks passing · ${scoreWord}</span></div>
+    <div style="padding-top:14px">${bar}</div>
   </td></tr>
   ${bannerHtml}
-  ${checks.map(card).join('')}
-  <tr><td style="padding:8px 8px 0;font-size:12px;line-height:18px;color:#667085">
-    ${answeredLine}Based on the <a href="https://symplytics.com/blog/n8n-security-checklist" style="color:#175cd3">n8n Security Checklist</a> by Symplytics (Diego Rodriguez).
+  <tr><td style="padding:0 32px">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-top:1px solid ${LINE}">${summaryRows}</table>
+  </td></tr>
+  ${failing.length ? `
+  <tr><td style="padding:28px 32px 6px;border-top:1px solid ${LINE}">
+    <div style="font-size:17px;font-weight:700;color:${INK}">What to fix</div>
+  </td></tr>
+  <tr><td style="padding:10px 32px 18px">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${failing.map(detail).join('')}</table>
+  </td></tr>` : `<tr><td style="padding:0 0 12px"></td></tr>`}
+</table>
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px">
+  <tr><td align="center" style="padding:18px 24px 0;font-size:12px;line-height:19px;color:#94a3b8">
+    ${answeredLine}Based on the <a href="https://symplytics.com/blog/n8n-security-checklist" style="color:#64748b">n8n Security Checklist</a> by Symplytics (Diego Rodriguez).<br>
     Independent build, not made by or affiliated with Symplytics.
   </td></tr>
 </table>
@@ -447,7 +451,7 @@ const html = `<!doctype html>
 const icon = { PASS: '✅', FAIL: '❌', MANUAL: '📝' };
 const text = [
   `*n8n security scorecard: ${instance}* (${today}${version ? `, n8n ${version}` : ''})`,
-  `${totals.FAIL} failed · ${totals.PASS} passed${totals.MANUAL ? ` · ${totals.MANUAL} need answers` : ''}`,
+  `${totals.PASS}/7 passing · ${scoreWord}`,
   '',
   ...checks.map((c) => `${icon[c.status]} *${c.n}. ${c.name}*: ${c.headline.replace(/`/g, '')}`),
   ...(!answers || stale ? ['', `${!answers ? 'Answer the one-time questions' : 'Confirm your answers'}: ${formUrl}`] : []),
