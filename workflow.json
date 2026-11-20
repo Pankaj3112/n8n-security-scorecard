@@ -305,7 +305,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
+        680,
         720
       ]
     },
@@ -321,7 +321,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        840,
+        880,
         720
       ],
       "executeOnce": true,
@@ -330,14 +330,54 @@
     },
     {
       "parameters": {
-        "jsCode": "// Builds the scorecard: maps the n8n API data onto the 7 checks of the\n// \"n8n Security Checklist for IT Teams\" and renders an HTML email + plain text.\n// Text wrapped in `backticks` is shown as code in the email.\n\nconst cfg = $('Settings').first().json;\nconst maxAdmins = Number(cfg.maxOwnersAndAdmins) || 3;\nconst maxBehindDays = Number(cfg.maxDaysBehindLatest) || 28;\n\n// ---------- helpers ----------\nconst items = (name) => {\n  try { return $(name).all().map((i) => i.json); } catch (e) { return []; }\n};\nconst errorOf = (list) => {\n  const bad = list.find((j) => j && j.error);\n  if (!bad) return null;\n  const e = bad.error;\n  return typeof e === 'string' ? e : (e.message || e.description || JSON.stringify(e)).slice(0, 200);\n};\nconst esc = (s) => String(s ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + 's')}`;\nconst daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);\n\n// ---------- data ----------\nconst auditItems = items('Run security audit');\nconst auditError = errorOf(auditItems);\nconst reports = auditError ? [] : auditItems.flatMap((j) => Object.values(j)).filter((r) => r && Array.isArray(r.sections));\nconst section = (risk, title) => {\n  for (const r of reports) if (r.risk === risk) for (const s of r.sections) if (s.title === title) return s;\n  return null;\n};\n\nconst userPages = items('Get users');\nconst usersError = errorOf(userPages);\nconst users = usersError ? [] : userPages.flatMap((p) => p.data || []);\n\nconst wfPages = items('Get active workflows');\nconst workflowsError = errorOf(wfPages);\nconst workflows = workflowsError ? [] : wfPages.flatMap((p) => p.data || []).filter((w) => w.active && !w.isArchived);\nconst liveNodes = (w) => (w.activeVersion && w.activeVersion.nodes) || w.nodes || [];\n\nconst pkgItems = items('Get community packages');\nconst pkgError = errorOf(pkgItems);\nconst packages = pkgError ? [] : pkgItems.filter((p) => p && p.packageName);\n\nconst logItems = items('Get log streaming destinations');\nconst logError = errorOf(logItems);\nconst logDestinations = logError ? [] : logItems.flatMap((p) => p.data || []);\n\nconst version = (items('Read version')[0] || {}).version || null;\nconst releaseItems = items('Check n8n releases');\nconst releasesError = errorOf(releaseItems);\nconst releases = releasesError ? [] : releaseItems.filter((r) => r && r.name);\n\n// Each check: status, headline (one line), found (facts), fix (actions), ask (questions for a person).\nconst checks = [];\nconst add = (c) => checks.push({ n: checks.length + 1, found: [], fix: [], ask: [], ...c });\n\n// ---------- 1. Version ----------\n{\n  const outdated = section('instance', 'Outdated instance');\n  const found = [];\n  const fix = [];\n  const ask = [];\n  let status;\n  let headline;\n  if (version && releases.length) {\n    const current = releases.find((r) => r.name === version);\n    const newer = releases.filter((r) => r.name !== version)\n      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));\n    const security = newer.filter((r) => r.hasSecurityFix || r.hasSecurityIssue);\n    const insecureNow = !!(current && current.hasSecurityIssue);\n    const latest = newer[newer.length - 1];\n    const behindDays = newer.length ? daysBetween(newer[0].createdAt, new Date().toISOString()) : 0;\n    status = (security.length || insecureNow || behindDays > maxBehindDays) ? 'FAIL' : 'PASS';\n    if (!newer.length) {\n      headline = `Running ${version}, the latest release`;\n    } else {\n      headline = `Running ${version}, ${plural(newer.length, 'release')} behind ${latest.name}`;\n      found.push(`First newer release came out ${plural(behindDays, 'day')} ago`);\n    }\n    if (security.length) found.push(`Security fixes in ${security.map((r) => r.name).join(', ')}`);\n    if (insecureNow) found.push('n8n flags this version as having a known security issue');\n    if (status === 'FAIL') fix.push(`Upgrade to ${latest ? latest.name : 'the latest release'} (back up the database and keep the encryption key at hand)`);\n    ask.push('Does someone read the release notes every week?');\n  } else if (outdated) {\n    status = 'FAIL';\n    headline = 'Instance is out of date';\n    found.push(outdated.description);\n    fix.push('Upgrade to the latest release (back up the database and keep the encryption key at hand)');\n  } else {\n    status = 'MANUAL';\n    headline = version ? `Running ${version}; could not reach api.n8n.io to compare` : 'Could not read the running version';\n    ask.push('Is this instance within a few weeks of the latest release, with every security release applied?');\n  }\n  add({ name: 'Version', status, headline, found, fix, ask });\n}\n\n// ---------- 2. Exposure ----------\n{\n  const PUBLIC_TRIGGERS = {\n    'n8n-nodes-base.webhook': 'webhook',\n    'n8n-nodes-base.formTrigger': 'form',\n    '@n8n/n8n-nodes-langchain.mcpTrigger': 'MCP server',\n    '@n8n/n8n-nodes-langchain.chatTrigger': 'chat',\n  };\n  // Webhooks the audit considers protected because the next node validates the payload.\n  const auditOpen = new Set(((section('instance', 'Unprotected webhooks in instance') || {}).location || [])\n    .map((l) => `${l.workflowId}/${l.nodeId}`));\n  const open = [];\n  const validated = [];\n  let secured = 0;\n  for (const w of workflows) {\n    for (const node of liveNodes(w)) {\n      const kind = PUBLIC_TRIGGERS[node.type];\n      if (!kind || node.disabled) continue;\n      const p = node.parameters || {};\n      if (kind === 'chat' && p.public !== true) continue; // hosted chat is only public when made publicly available\n      const auth = p.authentication || 'none';\n      const label = `${w.name} (${kind}${p.path ? ` \\`/${p.path}\\`` : ''})`;\n      if (auth !== 'none') secured++;\n      else if (kind === 'webhook' && !auditOpen.has(`${w.id}/${node.id}`)) validated.push(label);\n      else open.push(label);\n    }\n  }\n  const found = [];\n  const fix = [];\n  const ask = [];\n  let status;\n  let headline;\n  if (workflowsError) {\n    status = 'MANUAL';\n    headline = 'Could not list workflows';\n    found.push(workflowsError);\n    ask.push('Does every active webhook, form, chat and MCP Server Trigger authenticate?');\n  } else {\n    const total = open.length + validated.length + secured;\n    status = open.length ? 'FAIL' : 'PASS';\n    headline = open.length\n      ? `${plural(open.length, 'public endpoint')} with no authentication`\n      : `${plural(total, 'public endpoint')}, all authenticated`;\n    for (const o of open) found.push(`No auth: ${o}`);\n    for (const v of validated) found.push(`No auth, checked in next node: ${v}`);\n    if (total) found.push(`${secured} of ${total} public endpoints authenticate`);\n    if (open.length) fix.push('Turn on Authentication for each one (header auth with a shared secret is the quick option), or unpublish it');\n    if (validated.length) ask.push('Does the next-node check really verify a signature or secret?');\n    ask.push('Is the editor behind a VPN or an IP allow-list?');\n  }\n  add({ name: 'Exposure', status, headline, found, fix, ask });\n}\n\n// ---------- 3. Credentials ----------\n{\n  const found = [];\n  const fix = [];\n  const names = (title) => (((section('credentials', title)) || {}).location || []).map((l) => l.name);\n  let headline = 'Key storage and scopes need a person to confirm';\n  if (auditError) {\n    found.push(`Security audit failed: ${auditError}`);\n  } else {\n    const unused = names('Credentials not used in any workflow');\n    const inactive = names('Credentials not used in any active workflow').filter((n) => !unused.includes(n));\n    const stale = names('Credentials not used in recently executed workflows').filter((n) => !unused.includes(n) && !inactive.includes(n));\n    if (unused.length) found.push(`Not used anywhere: ${unused.join(', ')}`);\n    if (inactive.length) found.push(`Only in unpublished workflows: ${inactive.join(', ')}`);\n    if (stale.length) found.push(`Not run in 90 days: ${stale.join(', ')}`);\n    const idle = unused.length + inactive.length + stale.length;\n    if (idle) {\n      headline = `${plural(idle, 'credential')} idle; key storage needs a person to confirm`;\n      fix.push('Delete the credentials you no longer need');\n    } else {\n      found.push('Every credential is in active, recent use');\n    }\n  }\n  const ask = [\n    'Did you set `N8N_ENCRYPTION_KEY` yourself, and is a copy kept off the server?',\n    'Is each credential scoped to what its workflow needs?',\n  ];\n  add({ name: 'Credentials', status: 'MANUAL', headline, found, fix, ask });\n}\n\n// ---------- 4. Access ----------\n{\n  const found = [];\n  const fix = [];\n  const ask = [];\n  let status;\n  let headline;\n  if (usersError) {\n    status = 'MANUAL';\n    headline = 'Could not list users';\n    found.push(usersError);\n    ask.push('How many owners and admins are there, and does each have 2FA?');\n  } else {\n    const active = users.filter((u) => !u.isPending && !u.disabled);\n    const admins = active.filter((u) => u.role === 'global:owner' || u.role === 'global:admin');\n    const adminsNo2fa = admins.filter((u) => !u.mfaEnabled);\n    const othersNo2fa = active.filter((u) => !admins.includes(u) && !u.mfaEnabled);\n    const SHARED = /^(admin|administrator|ops|devops|it|team|shared|info|automation|automations|n8n|service|svc|bot|integrations?|support|dev|test|office|hello)([._+-].*)?$/i;\n    const shared = active.filter((u) => u.email && SHARED.test(u.email.split('@')[0]));\n    const pending = users.filter((u) => u.isPending);\n    const who = (u) => u.email || `${u.firstName || ''} ${u.lastName || ''}`.trim();\n    const fail = admins.length > maxAdmins || adminsNo2fa.length || shared.some((u) => admins.includes(u));\n    status = fail ? 'FAIL' : (shared.length ? 'MANUAL' : 'PASS');\n    const problems = [];\n    if (admins.length > maxAdmins) problems.push(`${admins.length} owners/admins`);\n    if (adminsNo2fa.length) problems.push(`${plural(adminsNo2fa.length, 'admin')} without 2FA`);\n    if (shared.length) problems.push(`${plural(shared.length, 'shared-looking login')}`);\n    headline = problems.length\n      ? problems.join(', ').replace(/^./, (c) => c.toUpperCase())\n      : `${plural(admins.length, 'owner/admin', 'owners/admins')}, all with 2FA`;\n    found.push(`${plural(admins.length, 'owner/admin', 'owners/admins')} of ${plural(active.length, 'user')}: ${admins.map(who).join(', ')}`);\n    if (adminsNo2fa.length) found.push(`No 2FA: ${adminsNo2fa.map(who).join(', ')}`);\n    if (shared.length) found.push(`Looks shared: ${shared.map(who).join(', ')}`);\n    if (othersNo2fa.length) found.push(`${plural(othersNo2fa.length, 'other user')} without 2FA`);\n    if (pending.length) found.push(`Pending invites: ${pending.map(who).join(', ')}`);\n    if (admins.length > maxAdmins) fix.push(`Cut owners/admins to ${maxAdmins} or fewer`);\n    if (adminsNo2fa.length) fix.push('Turn on 2FA for every owner and admin');\n    if (shared.length) fix.push('Give each person their own named account');\n    if (pending.length) fix.push('Cancel invites nobody will accept');\n  }\n  add({ name: 'Access', status, headline, found, fix, ask });\n}\n\n// ---------- 5. Code ----------\n{\n  // Probe: can a Code node read the server's environment? Blocked by default since n8n 2.0.\n  let envReadable;\n  try {\n    const v = $env.PATH ?? $env.HOME;\n    envReadable = v !== undefined && v !== null && !/denied/i.test(String(v));\n  } catch (e) {\n    envReadable = false;\n  }\n  const risky = (section('nodes', 'Official risky nodes') || {}).location || [];\n  const codeTypes = new Set(['n8n-nodes-base.code', 'n8n-nodes-base.function', 'n8n-nodes-base.functionItem', 'n8n-nodes-base.executeCommand', 'n8n-nodes-base.ssh']);\n  const codeWfs = [...new Set(risky.filter((l) => codeTypes.has(l.nodeType) && l.workflowId !== $workflow.id).map((l) => l.workflowName))];\n  const found = [envReadable\n    ? 'Test: a Code node could read server environment variables'\n    : 'Test: a Code node could not read server environment variables'];\n  if (!auditError && codeWfs.length) {\n    found.push(`Code, Execute Command or SSH in ${plural(codeWfs.length, 'workflow')}: ${codeWfs.slice(0, 6).join(', ')}${codeWfs.length > 6 ? ', …' : ''}`);\n  }\n  const fix = envReadable ? ['Set `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` (the default since 2.0)'] : [];\n  const ask = ['Do task runners run in external mode (`N8N_RUNNERS_MODE=external`, separate container)? n8n warns at startup while they are internal.'];\n  add({\n    name: 'Code',\n    status: envReadable ? 'FAIL' : 'MANUAL',\n    headline: envReadable ? 'Workflow code can read server secrets' : 'Env access blocked; runner mode needs a person to confirm',\n    found, fix, ask,\n  });\n}\n\n// ---------- 6. Community nodes ----------\n{\n  const found = [];\n  const fix = [];\n  const ask = [];\n  let status;\n  let headline;\n  const settings = (section('instance', 'Security settings') || {}).settings || {};\n  const enabled = settings.features ? settings.features.communityPackagesEnabled : undefined;\n  const auditCommunity = ((section('nodes', 'Community nodes') || {}).location || []).map((l) => l.nodeType);\n  if (pkgError && !auditCommunity.length) {\n    if (enabled === false) {\n      status = 'PASS';\n      headline = 'Community packages are turned off';\n    } else {\n      status = 'MANUAL';\n      headline = 'Could not list community packages';\n      found.push(pkgError);\n      ask.push('Which community packages are installed, and does each have a reason to stay?');\n    }\n  } else if (!packages.length && !auditCommunity.length) {\n    status = 'PASS';\n    headline = 'No community packages installed';\n  } else {\n    const usedTypes = new Set(workflows.flatMap((w) => liveNodes(w).map((n) => n.type)));\n    const pkgs = packages.length ? packages : [...new Set(auditCommunity.map((t) => t.split('.')[0]))].map((name) => ({ packageName: name }));\n    const unused = [];\n    for (const p of pkgs) {\n      const types = (p.installedNodes || []).map((n) => n.type);\n      const inUse = types.length ? types.some((t) => usedTypes.has(t)) : auditCommunity.some((t) => t.startsWith(p.packageName + '.'));\n      const bits = [p.installedVersion, p.authorName && `by ${p.authorName}`, inUse ? 'in use' : 'not used by any published workflow', p.updateAvailable && `update ${p.updateAvailable} available`].filter(Boolean);\n      found.push(`\\`${p.packageName}\\` ${bits.join(', ')}`);\n      if (!inUse) unused.push(p.packageName);\n    }\n    status = unused.length ? 'FAIL' : 'MANUAL';\n    headline = unused.length\n      ? `${plural(unused.length, 'package')} installed but unused`\n      : `${plural(pkgs.length, 'package')} installed; each needs a reason to stay`;\n    if (unused.length) fix.push(`Uninstall ${unused.map((u) => `\\`${u}\\``).join(', ')}`);\n    ask.push('For each package: who maintains it, and does a built-in node now do the same job?');\n  }\n  if (enabled !== false) ask.push('Is `N8N_UNVERIFIED_PACKAGES_ENABLED=false` set?');\n  add({ name: 'Community nodes', status, headline, found, fix, ask });\n}\n\n// ---------- 7. Recovery and logs ----------\n{\n  const found = [];\n  if (logError) {\n    found.push(/40[34]|licen|forbidden/i.test(logError)\n      ? 'Log streaming is a paid feature, so the API cannot see where logs go'\n      : `Could not read log streaming settings: ${logError}`);\n  } else {\n    const on = logDestinations.filter((d) => d.enabled !== false);\n    found.push(on.length\n      ? `Logs stream to ${on.map((d) => d.label || d.__type || 'a destination').join(', ')}`\n      : 'No log streaming destination set up');\n  }\n  const ask = [\n    'Is the database backed up on a schedule and copied off the server?',\n    'Has a backup been restored on another machine at least once?',\n    'Who reads the n8n logs, and how often?',\n  ];\n  add({ name: 'Recovery and logs', status: 'MANUAL', headline: 'Backups and logs need a person to confirm', found, fix: [], ask });\n}\n\n// ---------- render ----------\nconst count = (s) => checks.filter((c) => c.status === s).length;\nconst totals = { PASS: count('PASS'), FAIL: count('FAIL'), MANUAL: count('MANUAL') };\nconst instance = cfg.instanceName || cfg.n8nUrl;\nconst today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });\nconst subject = totals.FAIL\n  ? `n8n security: ${plural(totals.FAIL, 'check')} failed on ${instance}`\n  : `n8n security: no failed checks on ${instance}`;\n\nconst FONT = \"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif\";\nconst MONO = \"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace\";\nconst STATUS = {\n  FAIL: { fg: '#b42318', bg: '#fef3f2', line: '#f04438', label: 'Fail' },\n  PASS: { fg: '#067647', bg: '#ecfdf3', line: '#17b26a', label: 'Pass' },\n  MANUAL: { fg: '#93370d', bg: '#fffaeb', line: '#f79009', label: 'Check' },\n};\nconst rich = (s) => esc(s).replace(/`([^`]+)`/g,\n  `<code style=\"font-family:${MONO};font-size:12px;background:#f2f4f7;border-radius:4px;padding:1px 5px;color:#344054\">$1</code>`);\nconst block = (label, lines, mark) => !lines.length ? '' : `\n  <tr><td style=\"padding:12px 0 0\">\n    <div style=\"font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#98a2b3;padding-bottom:4px\">${label}</div>\n    ${lines.map((l) => `<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\"><tr>\n      <td width=\"18\" valign=\"top\" style=\"font-size:14px;line-height:22px;color:#98a2b3\">${mark}</td>\n      <td style=\"font-size:14px;line-height:22px;color:#344054\">${rich(l)}</td></tr></table>`).join('')}\n  </td></tr>`;\n\nconst card = (c) => {\n  const s = STATUS[c.status];\n  return `\n<tr><td style=\"padding:0 0 12px\">\n  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:#ffffff;border:1px solid #eaecf0;border-left:4px solid ${s.line};border-radius:10px\">\n    <tr><td style=\"padding:18px 20px\">\n      <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">\n        <tr>\n          <td valign=\"top\">\n            <div style=\"font-size:12px;color:#98a2b3;font-weight:600\">${c.n} of 7</div>\n            <div style=\"font-size:17px;font-weight:700;color:#101828;padding-top:2px\">${esc(c.name)}</div>\n          </td>\n          <td valign=\"top\" align=\"right\">\n            <span style=\"display:inline-block;padding:4px 12px;border-radius:999px;background:${s.bg};color:${s.fg};font-size:12px;font-weight:700\">${s.label}</span>\n          </td>\n        </tr>\n        <tr><td colspan=\"2\" style=\"padding-top:8px;font-size:15px;line-height:22px;color:#101828\">${rich(c.headline)}</td></tr>\n        ${block('Found', c.found, '•')}\n        ${block('Fix', c.fix, '→')}\n        ${block('Answer yourself', c.ask, '☐')}\n      </table>\n    </td></tr>\n  </table>\n</td></tr>`;\n};\n\nconst stat = (s, label) => `\n  <td width=\"33%\" style=\"padding:0 4px\">\n    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:${STATUS[s].bg};border-radius:10px\">\n      <tr><td align=\"center\" style=\"padding:14px 8px\">\n        <div style=\"font-size:28px;font-weight:800;line-height:32px;color:${STATUS[s].fg}\">${totals[s]}</div>\n        <div style=\"font-size:12px;font-weight:600;color:${STATUS[s].fg};padding-top:2px\">${label}</div>\n      </td></tr>\n    </table>\n  </td>`;\n\nconst html = `<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>${esc(subject)}</title></head>\n<body style=\"margin:0;padding:0;background:#f2f4f7;font-family:${FONT}\">\n<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:#f2f4f7\">\n<tr><td align=\"center\" style=\"padding:28px 12px\">\n<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"max-width:640px;font-family:${FONT}\">\n  <tr><td style=\"padding:0 0 16px\">\n    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:#101828;border-radius:12px\">\n      <tr><td style=\"padding:24px 24px 20px\">\n        <div style=\"font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#98a2b3\">n8n security scorecard</div>\n        <div style=\"font-size:24px;font-weight:700;color:#ffffff;padding-top:6px\">${esc(instance)}</div>\n        <div style=\"font-size:13px;color:#98a2b3;padding-top:4px\">${esc(today)}${version ? ` &nbsp;·&nbsp; n8n ${esc(version)}` : ''} &nbsp;·&nbsp; 7 checks</div>\n      </td></tr>\n      <tr><td style=\"padding:0 20px 20px\">\n        <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\"><tr>\n          ${stat('FAIL', 'Failed')}${stat('PASS', 'Passed')}${stat('MANUAL', 'Check yourself')}\n        </tr></table>\n      </td></tr>\n    </table>\n  </td></tr>\n  ${checks.map(card).join('')}\n  <tr><td style=\"padding:8px 8px 0;font-size:12px;line-height:18px;color:#667085\">\n    <b>Check</b> means the n8n API can't see it, so a person has to answer the questions in that card.\n    The checks follow Diego Rodriguez's <a href=\"https://symplytics.com/blog/n8n-security-checklist\" style=\"color:#175cd3\">n8n Security Checklist for IT Teams</a>.\n    This workflow is an independent build, not made by or affiliated with the checklist's authors.\n  </td></tr>\n</table>\n</td></tr>\n</table>\n</body></html>`;\n\nconst icon = { PASS: '✅', FAIL: '❌', MANUAL: '❔' };\nconst text = [\n  `*n8n security scorecard: ${instance}* (${today}${version ? `, n8n ${version}` : ''})`,\n  `${totals.FAIL} failed · ${totals.PASS} passed · ${totals.MANUAL} to check yourself`,\n  '',\n  ...checks.map((c) => `${icon[c.status]} *${c.n}. ${c.name}*: ${c.headline.replace(/`/g, '')}`),\n].join('\\n');\n\nreturn [{ json: { subject, html, text, totals, checks } }];\n"
+        "url": "={{ $('Settings').first().json.n8nUrl.replace(/\\/+$/, '') }}/rest/settings",
+        "options": {}
+      },
+      "id": "721a96c9-808d-5e71-996e-cc0d631805b8",
+      "name": "Get public settings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        720
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "n8n_security_answers"
+        },
+        "returnAll": true
+      },
+      "id": "0cc8c374-9906-568f-b29b-06fe06868d6c",
+      "name": "Get saved answers",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        720
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the scorecard: maps what n8n can see (public API, built-in security\n// audit, a sandbox probe) plus the admin's saved one-time answers onto the 7\n// checks of the n8n Security Checklist, and renders an HTML email + plain text.\n// Text wrapped in `backticks` is shown as code in the email.\n\nconst cfg = $('Settings').first().json;\nconst baseUrl = String(cfg.n8nUrl || '').replace(/\\/+$/, '');\nconst formUrl = `${baseUrl}/form/n8n-security-answers`;\nconst maxAdmins = Number(cfg.maxOwnersAndAdmins) || 3;\nconst maxBehindDays = Number(cfg.maxDaysBehindLatest) || 28;\nconst staleAfterDays = 90;\n\n// ---------- helpers ----------\nconst items = (name) => {\n  try { return $(name).all().map((i) => i.json); } catch (e) { return []; }\n};\nconst errorOf = (list) => {\n  const bad = list.find((j) => j && j.error);\n  if (!bad) return null;\n  const e = bad.error;\n  return typeof e === 'string' ? e : (e.message || e.description || JSON.stringify(e)).slice(0, 200);\n};\nconst esc = (s) => String(s ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + 's')}`;\nconst daysBetween = (a, b) => Math.floor((new Date(b) - new Date(a)) / 86400000);\nconst fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });\nconst cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);\n\n// ---------- what n8n can see ----------\nconst auditItems = items('Run security audit');\nconst auditError = errorOf(auditItems);\nconst reports = auditError ? [] : auditItems.flatMap((j) => Object.values(j)).filter((r) => r && Array.isArray(r.sections));\nconst section = (risk, title) => {\n  for (const r of reports) if (r.risk === risk) for (const s of r.sections) if (s.title === title) return s;\n  return null;\n};\n\nconst userPages = items('Get users');\nconst usersError = errorOf(userPages);\nconst users = usersError ? [] : userPages.flatMap((p) => p.data || []);\n\nconst wfPages = items('Get active workflows');\nconst workflowsError = errorOf(wfPages);\nconst workflows = workflowsError ? [] : wfPages.flatMap((p) => p.data || []).filter((w) => w.active && !w.isArchived);\nconst liveNodes = (w) => (w.activeVersion && w.activeVersion.nodes) || w.nodes || [];\n\nconst pkgItems = items('Get community packages');\nconst pkgError = errorOf(pkgItems);\nconst packages = pkgError ? [] : pkgItems.filter((p) => p && p.packageName);\n\nconst logItems = items('Get log streaming destinations');\nconst logError = errorOf(logItems);\nconst logDestinations = logError ? [] : logItems.flatMap((p) => p.data || []).filter((d) => d && d.enabled !== false);\n\nconst version = (items('Read version')[0] || {}).version || null;\nconst releaseItems = items('Check n8n releases');\nconst releases = errorOf(releaseItems) ? [] : releaseItems.filter((r) => r && r.name);\n\nconst publicSettings = (items('Get public settings')[0] || {}).data || null;\nconst secureCookie = publicSettings && publicSettings.authCookie ? publicSettings.authCookie.secure : null;\n\n// Runner mode: a Code node's own stack trace shows where the task runner code lives.\n// Internal mode runs the runner from inside the n8n install; external mode runs it from the runners image.\nlet runnerMode = 'unknown';\ntry { null.probe; } catch (e) {\n  const stack = String(e && e.stack || '');\n  if (/node_modules\\/n8n\\/node_modules\\/.*task-runner/.test(stack)) runnerMode = 'internal';\n  else if (/task-runner/.test(stack)) runnerMode = 'external';\n}\n\n// Can workflow code read the server's environment? Blocked by default since n8n 2.0.\nlet envReadable;\ntry {\n  const v = $env.PATH ?? $env.HOME;\n  envReadable = v !== undefined && v !== null && !/denied/i.test(String(v));\n} catch (e) {\n  envReadable = false;\n}\n\n// ---------- the admin's saved answers ----------\nconst answerRows = items('Get saved answers').filter((r) => r && r.answered_at && !r.error);\nconst answers = answerRows.sort((a, b) => new Date(b.answered_at) - new Date(a.answered_at))[0] || null;\nconst answerAge = answers ? daysBetween(answers.answered_at, new Date().toISOString()) : null;\nconst stale = answers && answerAge > staleAfterDays;\nconst said = (key) => (answers ? String(answers[key] || '').trim().toLowerCase() === 'yes' : null);\n\n// Each check: status, headline (one line), found (facts), fix (actions, FAIL only), needsAnswers.\nconst checks = [];\nconst add = (c) => checks.push({ n: checks.length + 1, found: [], fix: [], needsAnswers: false, ...c });\n// Combine automated failures with the saved answers into one status.\nconst decide = (autoFail, answerFail, usesAnswers = true) => {\n  if (autoFail || answerFail) return 'FAIL';\n  if (usesAnswers && !answers) return 'MANUAL';\n  return 'PASS';\n};\n\n// ---------- 1. Version ----------\n{\n  const outdated = section('instance', 'Outdated instance');\n  const found = [];\n  const fix = [];\n  let status;\n  let headline;\n  if (version && releases.length) {\n    const current = releases.find((r) => r.name === version);\n    const newer = releases.filter((r) => r.name !== version)\n      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));\n    const security = newer.filter((r) => r.hasSecurityFix || r.hasSecurityIssue);\n    const insecureNow = !!(current && current.hasSecurityIssue);\n    const latest = newer[newer.length - 1];\n    const behindDays = newer.length ? daysBetween(newer[0].createdAt, new Date().toISOString()) : 0;\n    status = (security.length || insecureNow || behindDays > maxBehindDays) ? 'FAIL' : 'PASS';\n    headline = newer.length\n      ? `Running ${version}, ${plural(newer.length, 'release')} behind ${latest.name}`\n      : `Running ${version}, the latest release`;\n    if (newer.length) found.push(`First newer release came out ${plural(behindDays, 'day')} ago`);\n    if (security.length) found.push(`Security fixes in ${security.map((r) => r.name).join(', ')}`);\n    if (insecureNow) found.push('n8n flags this version as having a known security issue');\n    if (status === 'FAIL') fix.push(`Upgrade to ${latest ? latest.name : 'the latest release'} (back up the database and keep the encryption key at hand)`);\n  } else if (outdated) {\n    status = 'FAIL';\n    headline = 'This instance is out of date';\n    found.push(outdated.description);\n    fix.push('Upgrade to the latest release (back up the database and keep the encryption key at hand)');\n  } else {\n    status = 'MANUAL';\n    headline = version ? `Running ${version}; api.n8n.io was not reachable this week` : 'Could not read the running version';\n  }\n  add({ name: 'Version', status, headline, found, fix });\n}\n\n// ---------- 2. Exposure ----------\n{\n  const PUBLIC_TRIGGERS = {\n    'n8n-nodes-base.webhook': 'webhook',\n    'n8n-nodes-base.formTrigger': 'form',\n    '@n8n/n8n-nodes-langchain.mcpTrigger': 'MCP server',\n    '@n8n/n8n-nodes-langchain.chatTrigger': 'chat',\n  };\n  // Webhooks the audit considers protected because the next node validates the payload.\n  const auditOpen = new Set(((section('instance', 'Unprotected webhooks in instance') || {}).location || [])\n    .map((l) => `${l.workflowId}/${l.nodeId}`));\n  const open = [];\n  const validated = [];\n  let secured = 0;\n  for (const w of workflows) {\n    for (const node of liveNodes(w)) {\n      const kind = PUBLIC_TRIGGERS[node.type];\n      if (!kind || node.disabled) continue;\n      const p = node.parameters || {};\n      if (kind === 'chat' && p.public !== true) continue; // hosted chat is only public when made publicly available\n      const auth = p.authentication || 'none';\n      const path = p.path || (p.options && p.options.path);\n      const label = `${w.name} (${kind}${path ? ` \\`/${path}\\`` : ''})`;\n      if (auth !== 'none') secured++;\n      else if (kind === 'webhook' && !auditOpen.has(`${w.id}/${node.id}`)) validated.push(label);\n      else open.push(label);\n    }\n  }\n  const editorOpen = said('editor_restricted') === false;\n  const cookieInsecure = secureCookie === false;\n  const status = decide(open.length || cookieInsecure || !!workflowsError, editorOpen);\n  const found = [];\n  const fix = [];\n  const problems = [];\n  if (open.length) problems.push(`${plural(open.length, 'public endpoint')} without authentication`);\n  if (editorOpen) problems.push('editor reachable from anywhere');\n  if (cookieInsecure) problems.push('login cookie not marked secure');\n  const total = open.length + validated.length + secured;\n  let headline = problems.length ? cap(problems.join(', ')) : `${plural(total, 'public endpoint')}, all authenticated`;\n  if (workflowsError) { headline = 'Could not list workflows'; found.push(workflowsError); }\n  for (const o of open) found.push(`No auth: ${o}`);\n  for (const v of validated) found.push(`No auth, checked in the next node: ${v}`);\n  if (total && !workflowsError) found.push(`${secured} of ${total} public endpoints authenticate`);\n  if (answers) found.push(editorOpen ? 'Editor is not behind a VPN or IP allow-list (your answer)' : 'Editor is behind a VPN or IP allow-list (your answer)');\n  if (cookieInsecure) found.push('`N8N_SECURE_COOKIE` is off, so logins work over plain HTTP');\n  if (status === 'FAIL') {\n    if (open.length) fix.push('Turn on Authentication for each endpoint (header auth with a shared secret is the quick option), or unpublish it');\n    if (editorOpen) fix.push('Put the editor behind a VPN or an IP allow-list at the reverse proxy');\n    if (cookieInsecure) fix.push('Serve n8n over HTTPS and remove `N8N_SECURE_COOKIE=false`');\n  }\n  add({ name: 'Exposure', status, headline, found, fix, needsAnswers: status === 'MANUAL' });\n}\n\n// ---------- 3. Credentials ----------\n{\n  const keyBad = said('key_off_server') === false;\n  const scopeBad = said('creds_scoped') === false;\n  const status = decide(false, keyBad || scopeBad);\n  const found = [];\n  const fix = [];\n  const names = (title) => (((section('credentials', title)) || {}).location || []).map((l) => l.name);\n  const unused = names('Credentials not used in any workflow');\n  const inactive = names('Credentials not used in any active workflow').filter((n) => !unused.includes(n));\n  if (answers) {\n    found.push(keyBad ? '`N8N_ENCRYPTION_KEY` has no copy off the server (your answer)' : '`N8N_ENCRYPTION_KEY` set by you, copy kept off the server (your answer)');\n    found.push(scopeBad ? 'Some credentials have more access than their workflow needs (your answer)' : 'Credentials are scoped to what each workflow needs (your answer)');\n  }\n  if (unused.length) found.push(`Not used in any workflow: ${unused.join(', ')}`);\n  if (inactive.length) found.push(`Only used in unpublished workflows: ${inactive.join(', ')}`);\n  if (keyBad) fix.push('Store a copy of `N8N_ENCRYPTION_KEY` in a password manager or secrets store; without it, backups cannot decrypt credentials');\n  if (scopeBad) fix.push('Swap broad credentials for scoped ones (for example a read-only database user)');\n  if (status === 'FAIL' && unused.length) fix.push('Delete credentials nothing uses');\n  const headline = status === 'FAIL'\n    ? cap([keyBad && 'encryption key has no off-server copy', scopeBad && 'some credentials are over-scoped'].filter(Boolean).join(', '))\n    : status === 'PASS' ? 'Encryption key kept off the server; credentials scoped' : 'Encryption key storage and credential scopes';\n  add({ name: 'Credentials', status, headline, found, fix, needsAnswers: status === 'MANUAL' });\n}\n\n// ---------- 4. Access ----------\n{\n  const found = [];\n  const fix = [];\n  let status;\n  let headline;\n  if (usersError) {\n    status = 'MANUAL';\n    headline = 'Could not list users';\n    found.push(usersError);\n  } else {\n    const active = users.filter((u) => !u.isPending && !u.disabled);\n    const admins = active.filter((u) => u.role === 'global:owner' || u.role === 'global:admin');\n    const adminsNo2fa = admins.filter((u) => !u.mfaEnabled);\n    const othersNo2fa = active.filter((u) => !admins.includes(u) && !u.mfaEnabled);\n    const SHARED = /^(admin|administrator|ops|devops|it|team|shared|info|automation|automations|n8n|service|svc|bot|integrations?|support|dev|test|office|hello)([._+-].*)?$/i;\n    const shared = active.filter((u) => u.email && SHARED.test(u.email.split('@')[0]));\n    const pending = users.filter((u) => u.isPending);\n    const who = (u) => u.email || `${u.firstName || ''} ${u.lastName || ''}`.trim();\n    status = (admins.length > maxAdmins || adminsNo2fa.length || shared.length) ? 'FAIL' : 'PASS';\n    const problems = [];\n    if (admins.length > maxAdmins) problems.push(`${admins.length} owners/admins`);\n    if (adminsNo2fa.length) problems.push(`${plural(adminsNo2fa.length, 'admin')} without 2FA`);\n    if (shared.length) problems.push(plural(shared.length, 'shared-looking login'));\n    headline = problems.length ? cap(problems.join(', ')) : `${plural(admins.length, 'owner/admin', 'owners/admins')}, all with 2FA`;\n    found.push(`${plural(admins.length, 'owner/admin', 'owners/admins')} of ${plural(active.length, 'user')}: ${admins.map(who).join(', ')}`);\n    if (adminsNo2fa.length) found.push(`No 2FA: ${adminsNo2fa.map(who).join(', ')}`);\n    if (shared.length) found.push(`Looks shared: ${shared.map(who).join(', ')}`);\n    if (othersNo2fa.length) found.push(`${plural(othersNo2fa.length, 'other user')} without 2FA`);\n    if (pending.length) found.push(`Pending invites: ${pending.map(who).join(', ')}`);\n    if (status === 'FAIL') {\n      if (admins.length > maxAdmins) fix.push(`Cut owners/admins to ${maxAdmins} or fewer`);\n      if (adminsNo2fa.length) fix.push('Turn on 2FA for every owner and admin');\n      if (shared.length) fix.push('Give each person their own named account');\n      if (pending.length) fix.push('Cancel invites nobody will accept');\n    }\n  }\n  add({ name: 'Access', status, headline, found, fix });\n}\n\n// ---------- 5. Code ----------\n{\n  const found = [];\n  const fix = [];\n  const internal = runnerMode === 'internal';\n  let status = (envReadable || internal) ? 'FAIL' : (runnerMode === 'external' ? 'PASS' : 'MANUAL');\n  const problems = [];\n  if (internal) problems.push('task runners run in internal mode');\n  if (envReadable) problems.push('workflow code can read server environment variables');\n  const headline = problems.length ? cap(problems.join('; '))\n    : status === 'PASS' ? 'External task runners; environment variables blocked'\n      : 'Could not detect the task runner mode';\n  found.push(runnerMode === 'unknown'\n    ? 'Task runner mode: not detectable on this install'\n    : `Task runners: ${runnerMode} mode (detected from a Code node in this run)`);\n  found.push(envReadable\n    ? 'A Code node in this run could read server environment variables'\n    : 'A Code node in this run could not read server environment variables');\n  if (internal) fix.push('Run the runners as a separate container: `N8N_RUNNERS_MODE=external` plus the `n8nio/runners` image, with the same `N8N_RUNNERS_AUTH_TOKEN` on both sides');\n  if (envReadable) fix.push('Set `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` (the default since 2.0)');\n  add({ name: 'Code', status, headline, found, fix });\n}\n\n// ---------- 6. Community nodes ----------\n{\n  const found = [];\n  const fix = [];\n  const settings = (section('instance', 'Security settings') || {}).settings || {};\n  const enabled = settings.features ? settings.features.communityPackagesEnabled : undefined;\n  const auditCommunity = ((section('nodes', 'Community nodes') || {}).location || []).map((l) => l.nodeType);\n  const usedTypes = new Set(workflows.flatMap((w) => liveNodes(w).map((n) => n.type)));\n  const pkgs = packages.length ? packages\n    : [...new Set(auditCommunity.map((t) => t.split('.')[0]))].map((name) => ({ packageName: name }));\n  const unused = [];\n  for (const p of pkgs) {\n    const types = (p.installedNodes || []).map((n) => n.type);\n    const inUse = types.length ? types.some((t) => usedTypes.has(t)) : auditCommunity.some((t) => t.startsWith(p.packageName + '.'));\n    const bits = [p.installedVersion, p.authorName && `by ${p.authorName}`, inUse ? 'used by a published workflow' : 'not used by any published workflow', p.updateAvailable && `update ${p.updateAvailable} available`].filter(Boolean);\n    found.push(`\\`${p.packageName}\\` ${bits.join(', ')}`);\n    if (!inUse) unused.push(p.packageName);\n  }\n  const off = enabled === false;\n  const unverifiedOn = !off && said('unverified_off') === false;\n  const status = off ? (pkgs.length ? (unused.length ? 'FAIL' : 'PASS') : 'PASS') : decide(unused.length > 0, unverifiedOn);\n  if (!off && !pkgs.length && pkgError && !/404/.test(pkgError)) found.unshift(`Could not list packages: ${pkgError}`);\n  if (answers && !off) found.push(unverifiedOn ? 'Unverified packages can still be installed (your answer)' : '`N8N_UNVERIFIED_PACKAGES_ENABLED=false` is set (your answer)');\n  if (unused.length) fix.push(`Uninstall ${unused.map((u) => `\\`${u}\\``).join(', ')}`);\n  if (unverifiedOn) fix.push('Set `N8N_UNVERIFIED_PACKAGES_ENABLED=false` so only n8n-verified packages can be installed');\n  const problems = [];\n  if (unused.length) problems.push(`${plural(unused.length, 'package')} installed but unused`);\n  if (unverifiedOn) problems.push('unverified packages allowed');\n  const headline = problems.length ? cap(problems.join(', '))\n    : off ? 'Community packages are turned off'\n      : pkgs.length ? `${plural(pkgs.length, 'package')}, each used by a published workflow` : 'No community packages installed';\n  add({ name: 'Community nodes', status, headline, found, fix, needsAnswers: status === 'MANUAL' });\n}\n\n// ---------- 7. Recovery and logs ----------\n{\n  const found = [];\n  const fix = [];\n  const backupBad = said('backup_restored') === false;\n  const streaming = logDestinations.length > 0;\n  const logsBad = !streaming && said('logs_reviewed') === false;\n  const status = decide(false, backupBad || logsBad);\n  if (answers) {\n    found.push(backupBad ? 'No tested restore of a backup yet (your answer)' : 'Backups run on a schedule, are kept off the server and a restore was tested (your answer)');\n  }\n  if (streaming) found.push(`Logs stream to ${logDestinations.map((d) => d.label || d.__type || 'a destination').join(', ')}`);\n  else if (answers) {\n    const reviewer = String(answers.logs_reviewer || '').trim();\n    found.push(logsBad ? 'Nobody reviews the n8n logs on a schedule (your answer)' : `Logs are reviewed on a schedule${reviewer ? ` by ${reviewer}` : ''} (your answer)`);\n  }\n  if (backupBad) fix.push('Back up the database on a schedule, copy it off the server, and restore it on another machine once with the encryption key');\n  if (logsBad) fix.push('Pick someone to read the n8n logs every week, or stream them to a tool your team already watches');\n  const headline = status === 'FAIL'\n    ? cap([backupBad && 'backup restore never tested', logsBad && 'nobody watches the logs'].filter(Boolean).join(', '))\n    : status === 'PASS' ? 'Restore tested; logs watched' : 'Backups, restores and log review';\n  add({ name: 'Recovery and logs', status, headline, found, fix, needsAnswers: status === 'MANUAL' });\n}\n\n// ---------- render ----------\nconst count = (s) => checks.filter((c) => c.status === s).length;\nconst totals = { PASS: count('PASS'), FAIL: count('FAIL'), MANUAL: count('MANUAL') };\nconst instance = cfg.instanceName || baseUrl;\nconst today = fmtDate(new Date());\nconst subject = totals.FAIL\n  ? `n8n security: ${plural(totals.FAIL, 'check')} failed on ${instance}`\n  : totals.MANUAL ? `n8n security: ${totals.PASS} of 7 passed on ${instance}; answer the one-time questions to score the rest`\n    : `n8n security: all 7 checks passed on ${instance}`;\n\nconst FONT = \"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif\";\nconst MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';\nconst STATUS = {\n  FAIL: { fg: '#b42318', bg: '#fef3f2', line: '#f04438', label: 'Fail' },\n  PASS: { fg: '#067647', bg: '#ecfdf3', line: '#17b26a', label: 'Pass' },\n  MANUAL: { fg: '#93370d', bg: '#fffaeb', line: '#f79009', label: 'Needs answers' },\n};\nconst rich = (s) => esc(s).replace(/`([^`]+)`/g,\n  `<code style=\"font-family:${MONO};font-size:12px;background:#f2f4f7;border-radius:4px;padding:1px 5px;color:#344054\">$1</code>`);\nconst link = (href, text) => `<a href=\"${esc(href)}\" style=\"color:#175cd3;font-weight:600;text-decoration:none\">${esc(text)}</a>`;\nconst block = (label, lines, mark) => !lines.length ? '' : `\n  <tr><td colspan=\"2\" style=\"padding:12px 0 0\">\n    <div style=\"font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#98a2b3;padding-bottom:4px\">${label}</div>\n    ${lines.map((l) => `<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\"><tr>\n      <td width=\"18\" valign=\"top\" style=\"font-size:14px;line-height:22px;color:#98a2b3\">${mark}</td>\n      <td style=\"font-size:14px;line-height:22px;color:#344054\">${rich(l)}</td></tr></table>`).join('')}\n  </td></tr>`;\n\nconst card = (c) => {\n  const s = STATUS[c.status];\n  const ask = c.needsAnswers\n    ? `<tr><td colspan=\"2\" style=\"padding:12px 0 0;font-size:14px;line-height:22px;color:#344054\">n8n can't see this part. ${link(formUrl, 'Answer the one-time questions →')}</td></tr>`\n    : '';\n  return `\n<tr><td style=\"padding:0 0 12px\">\n  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:#ffffff;border:1px solid #eaecf0;border-left:4px solid ${s.line};border-radius:10px\">\n    <tr><td style=\"padding:18px 20px\">\n      <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">\n        <tr>\n          <td valign=\"top\">\n            <div style=\"font-size:12px;color:#98a2b3;font-weight:600\">${c.n} of 7</div>\n            <div style=\"font-size:17px;font-weight:700;color:#101828;padding-top:2px\">${esc(c.name)}</div>\n          </td>\n          <td valign=\"top\" align=\"right\">\n            <span style=\"display:inline-block;padding:4px 12px;border-radius:999px;background:${s.bg};color:${s.fg};font-size:12px;font-weight:700;white-space:nowrap\">${s.label}</span>\n          </td>\n        </tr>\n        <tr><td colspan=\"2\" style=\"padding-top:8px;font-size:15px;line-height:22px;color:#101828\">${rich(c.headline)}</td></tr>\n        ${block('Found', c.found, '•')}\n        ${c.status === 'FAIL' ? block('Fix', c.fix, '→') : ''}\n        ${ask}\n      </table>\n    </td></tr>\n  </table>\n</td></tr>`;\n};\n\nconst stat = (s, label) => `\n  <td width=\"33%\" style=\"padding:0 4px\">\n    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:${STATUS[s].bg};border-radius:10px\">\n      <tr><td align=\"center\" style=\"padding:14px 8px\">\n        <div style=\"font-size:28px;font-weight:800;line-height:32px;color:${STATUS[s].fg}\">${totals[s]}</div>\n        <div style=\"font-size:12px;font-weight:600;color:${STATUS[s].fg};padding-top:2px\">${label}</div>\n      </td></tr>\n    </table>\n  </td>`;\nconst stats = totals.MANUAL\n  ? stat('FAIL', 'Failed') + stat('PASS', 'Passed') + stat('MANUAL', 'Need answers')\n  : `${stat('FAIL', 'Failed')}${stat('PASS', 'Passed')}`;\n\nlet banner = '';\nif (!answers) {\n  banner = `n8n can't see a few things, like where the encryption key is kept or whether a backup was ever restored. ${link(formUrl, 'Answer 6 yes/no questions once')} (about 2 minutes) and every scorecard after that is fully scored.`;\n} else if (stale) {\n  banner = `Your answers are from ${fmtDate(answers.answered_at)} (${answerAge} days ago). ${link(formUrl, 'Confirm they are still true')}.`;\n}\nconst bannerHtml = banner ? `\n  <tr><td style=\"padding:0 0 12px\">\n    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:#eff8ff;border:1px solid #b2ddff;border-radius:10px\">\n      <tr><td style=\"padding:14px 18px;font-size:14px;line-height:21px;color:#194185\">${banner}</td></tr>\n    </table>\n  </td></tr>` : '';\nconst answeredLine = answers\n  ? `Answers by ${esc(answers.answered_by || 'an admin')} on ${esc(fmtDate(answers.answered_at))}. ${link(formUrl, 'Update them')} any time.<br>`\n  : '';\n\nconst html = `<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>${esc(subject)}</title></head>\n<body style=\"margin:0;padding:0;background:#f2f4f7;font-family:${FONT}\">\n<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:#f2f4f7\">\n<tr><td align=\"center\" style=\"padding:28px 12px\">\n<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"max-width:640px;font-family:${FONT}\">\n  <tr><td style=\"padding:0 0 16px\">\n    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background:#101828;border-radius:12px\">\n      <tr><td style=\"padding:24px 24px 20px\">\n        <div style=\"font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#98a2b3\">n8n security scorecard</div>\n        <div style=\"font-size:24px;font-weight:700;color:#ffffff;padding-top:6px\">${esc(instance)}</div>\n        <div style=\"font-size:13px;color:#98a2b3;padding-top:4px\">${esc(today)}${version ? ` &nbsp;·&nbsp; n8n ${esc(version)}` : ''} &nbsp;·&nbsp; 7 checks</div>\n      </td></tr>\n      <tr><td style=\"padding:0 20px 20px\">\n        <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\"><tr>${stats}</tr></table>\n      </td></tr>\n    </table>\n  </td></tr>\n  ${bannerHtml}\n  ${checks.map(card).join('')}\n  <tr><td style=\"padding:8px 8px 0;font-size:12px;line-height:18px;color:#667085\">\n    ${answeredLine}Based on the <a href=\"https://symplytics.com/blog/n8n-security-checklist\" style=\"color:#175cd3\">n8n Security Checklist</a> by Symplytics (Diego Rodriguez).\n    Independent build, not made by or affiliated with Symplytics.\n  </td></tr>\n</table>\n</td></tr>\n</table>\n</body></html>`;\n\nconst icon = { PASS: '✅', FAIL: '❌', MANUAL: '📝' };\nconst text = [\n  `*n8n security scorecard: ${instance}* (${today}${version ? `, n8n ${version}` : ''})`,\n  `${totals.FAIL} failed · ${totals.PASS} passed${totals.MANUAL ? ` · ${totals.MANUAL} need answers` : ''}`,\n  '',\n  ...checks.map((c) => `${icon[c.status]} *${c.n}. ${c.name}*: ${c.headline.replace(/`/g, '')}`),\n  ...(!answers || stale ? ['', `${!answers ? 'Answer the one-time questions' : 'Confirm your answers'}: ${formUrl}`] : []),\n].join('\\n');\n\nreturn [{ json: { subject, html, text, totals, checks, runnerMode, answeredAt: answers ? answers.answered_at : null } }];\n"
       },
       "id": "1aa4d8a8-1d7d-5202-a9eb-34c0801cf9aa",
       "name": "Build scorecard",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1080,
+        1600,
         720
       ],
       "executeOnce": true
@@ -357,7 +397,7 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        1300,
+        1820,
         640
       ],
       "credentials": {
@@ -382,15 +422,248 @@
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.3,
       "position": [
-        1300,
+        1820,
         800
       ],
       "disabled": true
     },
     {
       "parameters": {
-        "content": "## n8n Security Checklist Scorecard\nRuns the 7 checks from Diego Rodriguez's *n8n Security Checklist for IT Teams* against this instance and emails a scorecard.\n\n**Setup**\n1. Settings > n8n API: create an API key.\n2. Open any HTTP node named *Get …* and create an **n8n API** credential (API key + Base URL `<your n8n URL>/api/v1`). All API nodes share it.\n3. Edit **Settings**: your n8n URL, instance name, email to/from.\n4. Set an SMTP credential on **Send scorecard email** (or enable the Slack node).\n5. Click *Execute workflow*, then publish to get the weekly run.",
-        "height": 440,
+        "authentication": "n8nUserAuth",
+        "requireExecuteAccess": true,
+        "formTitle": "n8n security: one-time questions",
+        "formDescription": "The weekly scorecard checks most things itself. These 6 it can't see. Answer once; it asks again after 90 days.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Your name",
+              "fieldName": "answered_by",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Is the n8n editor behind a VPN or an IP allow-list?",
+              "fieldName": "editor_restricted",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Did you set N8N_ENCRYPTION_KEY yourself, and is a copy kept off this server (password manager or secrets store)?",
+              "fieldName": "key_off_server",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Is each credential limited to what its workflow needs (for example a read-only database user)?",
+              "fieldName": "creds_scoped",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Is N8N_UNVERIFIED_PACKAGES_ENABLED=false set (or are community packages turned off)?",
+              "fieldName": "unverified_off",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Is the database backed up on a schedule, kept off this server, and has a backup been restored on another machine at least once?",
+              "fieldName": "backup_restored",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Does someone review the n8n logs on a schedule?",
+              "fieldName": "logs_reviewed",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Who reviews the logs? (optional)",
+              "fieldName": "logs_reviewer"
+            }
+          ]
+        },
+        "options": {
+          "path": "n8n-security-answers",
+          "appendAttribution": false,
+          "respondWithOptions": {
+            "values": {
+              "respondWith": "text",
+              "formSubmittedText": "Saved. The next scorecard will use these answers."
+            }
+          }
+        }
+      },
+      "id": "af187c6a-38f2-5c62-98ad-cde02dfce366",
+      "name": "One-time questions",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        1160
+      ],
+      "webhookId": "475302f1-6956-5ef8-b5ad-239f8636ca80"
+    },
+    {
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "n8n_security_answers",
+        "columns": {
+          "column": [
+            {
+              "name": "answered_by",
+              "type": "string"
+            },
+            {
+              "name": "answered_at",
+              "type": "string"
+            },
+            {
+              "name": "editor_restricted",
+              "type": "string"
+            },
+            {
+              "name": "key_off_server",
+              "type": "string"
+            },
+            {
+              "name": "creds_scoped",
+              "type": "string"
+            },
+            {
+              "name": "unverified_off",
+              "type": "string"
+            },
+            {
+              "name": "backup_restored",
+              "type": "string"
+            },
+            {
+              "name": "logs_reviewed",
+              "type": "string"
+            },
+            {
+              "name": "logs_reviewer",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      },
+      "id": "a7dd9671-3014-55b2-920a-c6e2ba256804",
+      "name": "Create answers table",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        260,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shapes the form submission into one row for the answers data table.\nconst form = $('One-time questions').first().json;\nconst yn = (v) => (String(v || '').trim().toLowerCase() === 'yes' ? 'yes' : 'no');\nreturn [{\n  json: {\n    answered_by: String(form.answered_by || '').trim(),\n    answered_at: new Date().toISOString(),\n    editor_restricted: yn(form.editor_restricted),\n    key_off_server: yn(form.key_off_server),\n    creds_scoped: yn(form.creds_scoped),\n    unverified_off: yn(form.unverified_off),\n    backup_restored: yn(form.backup_restored),\n    logs_reviewed: yn(form.logs_reviewed),\n    logs_reviewer: String(form.logs_reviewer || '').trim(),\n  },\n}];\n"
+      },
+      "id": "6fca6fa8-7b5b-5a57-9e49-50fffc5036cc",
+      "name": "Prepare answers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "n8n_security_answers"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "aeb3e3d7-b687-579f-a709-3cc514244882",
+      "name": "Save answers",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## n8n Security Checklist Scorecard\nRuns the 7 checks from the *n8n Security Checklist* (Symplytics, Diego Rodriguez) against this instance and emails a scorecard every week.\n\n**Setup**\n1. Settings > n8n API: create an API key. Open any *Get …* node and create an **n8n API** credential (key + Base URL `<your n8n URL>/api/v1`). All API nodes share it.\n2. **Settings** node: your n8n URL, instance name, email to/from. Add an SMTP credential to **Send scorecard email** (or enable Slack).\n3. Publish the workflow, then open `<your n8n URL>/form/n8n-security-answers` and answer the 6 one-time questions.\n4. Click *Execute workflow* to get the first scorecard.",
+        "height": 460,
         "width": 380,
         "color": 4
       },
@@ -421,9 +694,9 @@
     },
     {
       "parameters": {
-        "content": "### 2. Version\nRead the running version and compare it with n8n's release list.",
+        "content": "### 2. Version and settings\nRunning version vs. n8n's release list; public login settings.",
         "height": 300,
-        "width": 520,
+        "width": 760,
         "color": 7
       },
       "id": "28d6a58b-a8d4-5870-be6f-2fc3656ef977",
@@ -437,9 +710,9 @@
     },
     {
       "parameters": {
-        "content": "### 3. Score and send\nMap everything onto the 7 checks and send the scorecard.",
+        "content": "### 3. Score and send\nAdd your saved answers, map everything onto the 7 checks, send the scorecard.",
         "height": 420,
-        "width": 420,
+        "width": 740,
         "color": 7
       },
       "id": "98f43fb1-9b08-50e9-b467-d09e9964dc35",
@@ -447,8 +720,24 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1020,
+        1260,
         500
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### One-time questions\nA form only logged-in n8n users can open. Saves answers to the `n8n_security_answers` data table. The scorecard re-asks after 90 days.",
+        "height": 320,
+        "width": 940,
+        "color": 7
+      },
+      "id": "e274c80d-4b34-54b8-a2c5-99ad9eca32f0",
+      "name": "Group: form",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        980
       ]
     }
   ],
@@ -567,6 +856,28 @@
       "main": [
         [
           {
+            "node": "Get public settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get public settings": {
+      "main": [
+        [
+          {
+            "node": "Get saved answers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get saved answers": {
+      "main": [
+        [
+          {
             "node": "Build scorecard",
             "type": "main",
             "index": 0
@@ -584,6 +895,39 @@
           },
           {
             "node": "Post to Slack (optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One-time questions": {
+      "main": [
+        [
+          {
+            "node": "Create answers table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create answers table": {
+      "main": [
+        [
+          {
+            "node": "Prepare answers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare answers": {
+      "main": [
+        [
+          {
+            "node": "Save answers",
             "type": "main",
             "index": 0
           }
