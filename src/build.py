@@ -62,12 +62,12 @@ settings = node("Settings", "n8n-nodes-base.set", 3.4, {
         {"id": nid("a-days"), "name": "maxDaysBehindLatest", "type": "number", "value": 28},
     ]},
     "options": {},
-}, [440, 300])
+}, [220, 300])
 
 nodes = [
     node("Every Monday 08:00", "n8n-nodes-base.scheduleTrigger", 1.2, {
-        "rule": {"interval": [{"field": "weeks", "triggerAtDay": [1], "triggerAtHour": 8}]}}, [200, 200]),
-    node("Run now", "n8n-nodes-base.manualTrigger", 1, {}, [200, 400]),
+        "rule": {"interval": [{"field": "weeks", "triggerAtDay": [1], "triggerAtHour": 8}]}}, [0, 220]),
+    node("Run now", "n8n-nodes-base.manualTrigger", 1, {}, [0, 400]),
     settings,
     node("Run security audit", "n8n-nodes-base.httpRequest", 4.2, {
         "method": "POST",
@@ -78,36 +78,36 @@ nodes = [
         "specifyBody": "json",
         "jsonBody": "{\n  \"additionalOptions\": { \"daysAbandonedWorkflow\": 90 }\n}",
         "options": {},
-    }, [660, 300], executeOnce=True, credentials=N8N_CRED, **TOLERANT),
-    api_get("Get users", "/users", [880, 300], query=[("includeRole", "true"), ("limit", "250")], paginate=True),
-    api_get("Get active workflows", "/workflows", [1100, 300], query=[("active", "true"), ("limit", "250")], paginate=True),
-    api_get("Get community packages", "/community-packages", [1320, 300]),
-    api_get("Get log streaming destinations", "/settings/log-streaming/destinations", [1540, 300]),
+    }, [480, 300], executeOnce=True, credentials=N8N_CRED, **TOLERANT),
+    api_get("Get users", "/users", [680, 300], query=[("includeRole", "true"), ("limit", "250")], paginate=True),
+    api_get("Get active workflows", "/workflows", [880, 300], query=[("active", "true"), ("limit", "250")], paginate=True),
+    api_get("Get community packages", "/community-packages", [1080, 300]),
+    api_get("Get log streaming destinations", "/settings/log-streaming/destinations", [1280, 300]),
     node("Get editor page", "n8n-nodes-base.httpRequest", 4.2, {
         "url": "={{ $('Settings').first().json.n8nUrl.replace(/\\/+$/, '') }}/",
         "options": {"response": {"response": {"responseFormat": "text", "outputPropertyName": "data"}}},
-    }, [1760, 300], executeOnce=True, **TOLERANT),
+    }, [480, 720], executeOnce=True, **TOLERANT),
     node("Read version", "n8n-nodes-base.code", 2, {
-        "jsCode": (SRC / "read-version.js").read_text()}, [1980, 300]),
+        "jsCode": (SRC / "read-version.js").read_text()}, [660, 720]),
     node("Check n8n releases", "n8n-nodes-base.httpRequest", 4.2, {
         "url": "=https://api.n8n.io/api/versions/{{ $json.version }}",
         "options": {"timeout": 15000},
-    }, [2200, 300], executeOnce=True, **TOLERANT),
+    }, [840, 720], executeOnce=True, **TOLERANT),
     node("Build scorecard", "n8n-nodes-base.code", 2, {
-        "jsCode": (SRC / "scorecard.js").read_text()}, [2420, 300], executeOnce=True),
+        "jsCode": (SRC / "scorecard.js").read_text()}, [1080, 720], executeOnce=True),
     node("Send scorecard email", "n8n-nodes-base.emailSend", 2.1, {
         "fromEmail": "={{ $('Settings').first().json.emailFrom }}",
         "toEmail": "={{ $('Settings').first().json.emailTo }}",
         "subject": "={{ $json.subject }}",
         "html": "={{ $json.html }}",
         "options": {"appendAttribution": False},
-    }, [2660, 200], credentials={"smtp": {"name": "SMTP account"}}),
+    }, [1300, 640], credentials={"smtp": {"name": "SMTP account"}}),
     node("Post to Slack (optional)", "n8n-nodes-base.slack", 2.3, {
         "select": "channel",
         "channelId": {"__rl": True, "mode": "name", "value": "#n8n-security"},
         "text": "={{ $json.text }}",
         "otherOptions": {},
-    }, [2660, 400], disabled=True),
+    }, [1300, 800], disabled=True),
     node("Read me", "n8n-nodes-base.stickyNote", 1, {
         "content": (
             "## n8n Security Checklist Scorecard\n"
@@ -120,8 +120,17 @@ nodes = [
             "3. Edit **Settings**: your n8n URL, instance name, email to/from.\n"
             "4. Set an SMTP credential on **Send scorecard email** (or enable the Slack node).\n"
             "5. Click *Execute workflow*, then publish to get the weekly run."),
-        "height": 380, "width": 420, "color": 4,
-    }, [-300, 120]),
+        "height": 440, "width": 380, "color": 4,
+    }, [-440, 140]),
+    node("Group: collect", "n8n-nodes-base.stickyNote", 1, {
+        "content": "### 1. Collect\nSecurity audit, users, published workflows, community packages and log streaming, all from this instance's public API.",
+        "height": 300, "width": 1020, "color": 7}, [420, 140]),
+    node("Group: version", "n8n-nodes-base.stickyNote", 1, {
+        "content": "### 2. Version\nRead the running version and compare it with n8n's release list.",
+        "height": 300, "width": 520, "color": 7}, [462, 560]),
+    node("Group: score", "n8n-nodes-base.stickyNote", 1, {
+        "content": "### 3. Score and send\nMap everything onto the 7 checks and send the scorecard.",
+        "height": 420, "width": 420, "color": 7}, [1020, 500]),
 ]
 
 chain = ["Settings", "Run security audit", "Get users", "Get active workflows", "Get community packages",

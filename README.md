@@ -15,6 +15,8 @@ row turns it into a short question for a person to answer.
 MCP Server Trigger, a second admin without 2FA, a shared-looking login and an
 unused community node.*
 
+![The workflow in n8n](screenshots/workflow.png)
+
 ## What it checks
 
 | # | Check | Pass when | What the workflow does |
@@ -79,7 +81,7 @@ Change them there.
   FAIL. Make sure that check is real.
 - The shared-login check only looks at the email address, so it can miss
   shared accounts and flag ones that aren't shared.
-- Tested on n8n 2.48 (self-hosted, Docker, community edition).
+- Tested on n8n 2.48.7 (self-hosted, Docker, community edition).
 
 ## Credit
 
