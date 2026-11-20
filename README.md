@@ -89,8 +89,11 @@ Monday at 08:00. If you skip step 4, the checks that need answers show
 
 - Everything runs inside your n8n. It reads your own API, your editor page (for
   the version number) and your public login settings.
-- The only outside call is `GET https://api.n8n.io/api/versions/<your version>`,
+- The only outside call the workflow makes is `GET https://api.n8n.io/api/versions/<your version>`,
   the same release list n8n's own update notices use.
+- The email's icons are small PNGs loaded from this repo on GitHub
+  (`assets/icons/`, rendered from [Lucide](https://lucide.dev)). Change
+  `ICON_BASE` in the **Build scorecard** node to host them yourself.
 - The scorecard contains workflow names, webhook paths and user emails. Send it
   somewhere that's fine to hold those.
 

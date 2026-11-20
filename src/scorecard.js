@@ -340,155 +340,136 @@ const subject = totals.FAIL
   : totals.MANUAL ? `n8n security: ${totals.PASS} of 7 passed on ${instance}; answer the one-time questions to score the rest`
     : `n8n security: all 7 checks passed on ${instance}`;
 
-const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
-const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
-const INK = '#0f172a';
-const BODY = '#334155';
-const MUTED = '#64748b';
-const LINE = '#e6e9ef';
-// Status colours are fixed and always paired with an icon + label.
+// Icons are Lucide line icons rendered to PNG and served from the repo (email clients strip inline SVG).
+const ICON_BASE = 'https://raw.githubusercontent.com/Pankaj3112/n8n-security-scorecard/main/assets/icons/';
+const ICON = { Version: 'version', Exposure: 'exposure', Credentials: 'credentials', Access: 'access', Code: 'code', 'Community nodes': 'community', 'Recovery and logs': 'recovery' };
+const img = (name, size, alt = '') => `<img src="${ICON_BASE}${name}.png" width="${size}" height="${size}" alt="${esc(alt)}" style="display:block;border:0;width:${size}px;height:${size}px">`;
+
+const FONT = "Geist,'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+const MONO = "'JetBrains Mono','Geist Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+const BG = '#000000';
+const PANEL = '#0a0a0a';
+const CARD = '#0f0f0f';
+const EDGE = '#1f1f1f';
+const TEXT = '#ededed';
+const SUB = '#8f8f8f';
+// Status colours always come with a dot and a word, never colour alone.
 const STATUS = {
-  FAIL: { c: '#d03b3b', ink: '#b42323', tint: '#fdeeee', icon: '✕', label: 'Fail' },
-  PASS: { c: '#0ca30c', ink: '#0a7a0a', tint: '#e8f6e8', icon: '✓', label: 'Pass' },
-  MANUAL: { c: '#fab219', ink: '#9a6200', tint: '#fff5df', icon: '?', label: 'Needs answers' },
+  PASS: { c: '#3ecf8e', bg: '#0d2a1e', edge: '#17573b', label: 'Pass' },
+  FAIL: { c: '#ff6369', bg: '#2a1012', edge: '#5c2226', label: 'Fail' },
+  MANUAL: { c: '#f5b041', bg: '#2b2110', edge: '#5e4720', label: 'Answer' },
 };
-const ICON = { Version: '⬆️', Exposure: '🌐', Credentials: '🔑', Access: '👥', Code: '💻', 'Community nodes': '🧩', 'Recovery and logs': '💾' };
-
 const rich = (s) => esc(s).replace(/`([^`]+)`/g,
-  `<span style="font-family:${MONO};font-size:12px;background:#eef1f5;border-radius:5px;padding:2px 6px;color:${INK}">$1</span>`);
-const link = (href, text, color = '#2563eb') => `<a href="${esc(href)}" style="color:${color};font-weight:700;text-decoration:none">${esc(text)}</a>`;
-const chip = (st) => `<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:${STATUS[st].tint};color:${STATUS[st].ink};font-size:12px;font-weight:700;white-space:nowrap">${STATUS[st].icon}&nbsp; ${STATUS[st].label}</span>`;
-const iconTile = (c, size) => `<div style="width:${size}px;height:${size}px;line-height:${size}px;border-radius:${Math.round(size * 0.3)}px;background:${STATUS[c.status].tint};text-align:center;font-size:${Math.round(size * 0.48)}px">${ICON[c.name] || '•'}</div>`;
+  `<span style="font-family:${MONO};font-size:12px;background:#1a1a1a;border:1px solid #262626;border-radius:4px;padding:1px 5px;color:#e5e5e5">$1</span>`);
+const badge = (st) => `<span style="display:inline-block;font-size:11.5px;line-height:16px;font-weight:500;color:${STATUS[st].c};background:${STATUS[st].bg};border:1px solid ${STATUS[st].edge};padding:2px 9px;border-radius:999px;white-space:nowrap">&#9679;&nbsp;${STATUS[st].label}</span>`;
+const iconBox = (c) => `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td width="30" height="30" align="center" valign="middle" style="width:30px;height:30px;border:1px solid #262626;background:#151515;border-radius:8px">${img(ICON[c.name], 16, c.name)}</td></tr></table>`;
 
-// Score ring: passing count inside a ring coloured by the worst status.
-const worst = totals.FAIL ? 'FAIL' : totals.MANUAL ? 'MANUAL' : 'PASS';
-const ring = `<table role="presentation" cellpadding="0" cellspacing="0" align="right"><tr><td align="center" valign="middle" width="112" height="112" style="width:112px;height:112px;border-radius:56px;border:8px solid ${STATUS[worst].c};background:#111a2e;box-sizing:border-box">
-  <div style="font-size:38px;line-height:40px;font-weight:800;color:#ffffff">${totals.PASS}<span style="font-size:20px;color:#8b98b0">/7</span></div>
-  <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8b98b0;padding-top:2px">passing</div>
-</td></tr></table>`;
+const dots = checks.map((c) => `<td style="padding-right:5px"><div style="width:10px;height:10px;border-radius:3px;background:${STATUS[c.status].c};font-size:1px;line-height:10px">&nbsp;</div></td>`).join('');
+const verdict = totals.FAIL ? `${totals.FAIL} failing` : totals.MANUAL ? `${totals.MANUAL} waiting on answers` : 'all clear';
 
-// Strip of 7 icons in checklist order, each marked with its status.
-const strip = `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="table-layout:fixed"><tr>${checks.map((c) => `
-  <td class="strip-cell" align="center" valign="top" style="padding:0 3px">
-    <div style="background:#16213a;border-radius:12px;padding:10px 2px 9px;border-bottom:3px solid ${STATUS[c.status].c}">
-      <div style="font-size:20px;line-height:24px">${ICON[c.name] || '•'}</div>
-      <div class="hide-sm" style="font-size:10.5px;line-height:13px;color:#c7d0e0;font-weight:600;padding-top:5px;height:26px">${esc(c.name)}</div>
-      <div style="font-size:12px;font-weight:800;color:${STATUS[c.status].c};padding-top:3px">${STATUS[c.status].icon}</div>
-    </div>
-  </td>`).join('')}</tr></table>`;
-
-const verdict = totals.FAIL
-  ? `${plural(totals.FAIL, 'check needs', 'checks need')} fixing`
-  : totals.MANUAL ? `${plural(totals.MANUAL, 'check needs', 'checks need')} your answers` : 'Every check passes';
-
-// Two-column grid of check cards.
 const card = (c) => `
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid ${LINE};border-radius:14px">
-    <tr><td style="padding:16px">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" height="100%" style="height:100%;background:${CARD};border:1px solid ${EDGE};border-radius:12px">
+    <tr><td valign="top" style="padding:16px">
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-        <td width="46" valign="top">${iconTile(c, 40)}</td>
-        <td valign="top" align="right">${chip(c.status)}</td>
+        <td valign="middle">${iconBox(c)}</td>
+        <td valign="middle" align="right">${badge(c.status)}</td>
       </tr></table>
-      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#94a3b8;padding-top:12px">CHECK ${c.n}</div>
-      <div style="font-size:16px;font-weight:700;color:${INK};padding-top:1px">${esc(c.name)}</div>
-      <div style="font-size:13px;line-height:19px;color:${MUTED};padding-top:4px;min-height:38px">${rich(c.headline)}</div>
+      <div style="font-size:14px;font-weight:600;color:${TEXT};padding-top:14px">${esc(c.name)}</div>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td class="hl" height="39" valign="top" style="height:39px;font-size:12.5px;line-height:18px;color:${SUB};padding-top:3px">${rich(c.headline)}</td></tr></table>
     </td></tr>
   </table>`;
 const gridRows = [];
 for (let i = 0; i < checks.length; i += 2) {
   const a = checks[i];
   const b = checks[i + 1];
-  gridRows.push(b ? `<tr>
-    <td class="col" width="50%" valign="top" style="padding:0 6px 12px 0">${card(a)}</td>
-    <td class="col" width="50%" valign="top" style="padding:0 0 12px 6px">${card(b)}</td>
-  </tr>` : `<tr><td colspan="2" valign="top" style="padding:0 0 12px">${card(a)}</td></tr>`);
+  gridRows.push(b ? `<tr style="height:1px">
+    <td class="col" width="50%" valign="top" height="100%" style="height:100%;padding:0 5px 10px 0">${card(a)}</td>
+    <td class="col" width="50%" valign="top" height="100%" style="height:100%;padding:0 0 10px 5px">${card(b)}</td>
+  </tr>` : `<tr><td colspan="2" valign="top" style="padding:0 0 10px">${card(a)}</td></tr>`);
 }
 
-// What to fix: failing checks in checklist order, with checkbox steps.
 const failing = checks.filter((c) => c.status === 'FAIL');
-const fixBlock = (c, i) => `
-  <tr><td style="padding:0 0 14px">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border:1px solid ${LINE};border-radius:14px;background:#ffffff">
-      <tr>
-        <td width="6" style="background:${STATUS.FAIL.c};border-radius:14px 0 0 14px;font-size:1px">&nbsp;</td>
-        <td style="padding:18px 20px">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-            <td width="44" valign="middle">${iconTile(c, 34)}</td>
-            <td valign="middle"><div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#94a3b8">CHECK ${c.n} OF 7</div>
-              <div style="font-size:17px;font-weight:700;color:${INK}">${esc(c.name)}</div></td>
-          </tr></table>
-          <div style="padding-top:12px">${c.found.map((f) =>
-            `<div style="font-size:13.5px;line-height:21px;color:${BODY};padding:2px 0 2px 16px;text-indent:-16px"><span style="color:#94a3b8">●</span>&nbsp; ${rich(f)}</div>`).join('')}</div>
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:14px;background:#f6f8fb;border-radius:10px"><tr><td style="padding:12px 14px">
-            ${c.fix.map((f) => `<table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-              <td width="26" valign="top" style="padding:3px 0"><div style="width:16px;height:16px;border:2px solid #94a3b8;border-radius:5px;box-sizing:border-box"></div></td>
-              <td style="font-size:13.5px;line-height:21px;color:${INK};padding:2px 0">${rich(f)}</td></tr></table>`).join('')}
-          </td></tr></table>
-        </td>
-      </tr>
+const fixCard = (c) => `
+  <tr><td style="padding:0 0 10px">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#140a0b;border:1px solid #2a1214;border-radius:12px">
+      <tr><td style="padding:16px 18px">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td valign="middle" style="padding-right:10px">${img('alert', 16, 'Failing')}</td>
+          <td valign="middle" style="font-size:14px;font-weight:600;color:${TEXT}">Fix: ${esc(c.name)}</td>
+        </tr></table>
+        ${c.found.length ? `<div style="padding-top:10px">${c.found.map((f) =>
+          `<div style="font-size:12.5px;line-height:19px;color:${SUB};padding:1px 0 1px 14px;text-indent:-14px">&ndash;&nbsp;&nbsp;${rich(f)}</div>`).join('')}</div>` : ''}
+        <div style="padding-top:8px">${c.fix.map((f, i) => `<table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
+          <td width="28" valign="top" style="font-family:${MONO};font-size:12px;line-height:20px;color:#6b6b6b;padding-top:8px">${String(i + 1).padStart(2, '0')}</td>
+          <td style="font-size:13px;line-height:20px;color:#d4d4d4;padding-top:8px">${rich(f)}</td></tr></table>`).join('')}</div>
+      </td></tr>
     </table>
   </td></tr>`;
 
 let banner = '';
 if (!answers) {
-  banner = `<b>${plural(totals.MANUAL, 'check is', 'checks are')} waiting on you.</b> n8n can't see where the encryption key is kept or whether a backup was ever restored. Answer 6 yes/no questions once and every scorecard after that is fully scored.`;
+  banner = `<b style="color:${TEXT}">${plural(totals.MANUAL, 'check is', 'checks are')} waiting on you.</b> n8n can't see where the encryption key is kept or whether a backup was ever restored. Answer 6 yes/no questions once and every scorecard after that is fully scored.`;
 } else if (stale) {
-  banner = `<b>Your answers are ${answerAge} days old.</b> They're still used, but things change. Take 2 minutes to confirm them.`;
+  banner = `<b style="color:${TEXT}">Your answers are ${answerAge} days old.</b> They're still used, but things change. Take 2 minutes to confirm them.`;
 }
 const bannerHtml = banner ? `
-  <tr><td style="padding:0 24px 20px">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#fff8e6;border:1px solid #f6dc9a;border-radius:14px">
+  <tr><td class="px" style="padding:0 28px 14px">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#17130a;border:1px solid #3a2f14;border-radius:12px">
       <tr>
-        <td width="52" valign="top" style="padding:16px 0 16px 16px;font-size:26px;line-height:30px">📝</td>
-        <td style="padding:16px 16px 16px 6px;font-size:13.5px;line-height:21px;color:#5c3d00">${banner}
-          <div style="padding-top:10px"><a href="${esc(formUrl)}" style="display:inline-block;background:${INK};color:#ffffff;font-weight:700;font-size:13px;text-decoration:none;padding:9px 16px;border-radius:9px">${answers ? 'Confirm my answers' : 'Answer the questions'} →</a></div>
+        <td width="34" valign="top" style="padding:16px 0 16px 16px">${img('question', 18, 'Needs answers')}</td>
+        <td style="padding:15px 16px 16px 4px;font-size:13px;line-height:20px;color:#bfb39a">${banner}
+          <div style="padding-top:12px"><a href="${esc(formUrl)}" style="display:inline-block;background:${TEXT};color:#000000;font-weight:600;font-size:13px;text-decoration:none;padding:8px 14px;border-radius:8px">${answers ? 'Confirm answers' : 'Answer the questions'} &rarr;</a></div>
         </td>
       </tr>
     </table>
   </td></tr>` : '';
 const answeredLine = answers
-  ? `Your answers: ${esc(answers.answered_by || 'an admin')}, ${esc(fmtDate(answers.answered_at))} · ${link(formUrl, 'update', '#64748b')}<br>`
+  ? `Answers by ${esc(answers.answered_by || 'an admin')}, ${esc(fmtDate(answers.answered_at))} &middot; <a href="${esc(formUrl)}" style="color:#a1a1a1">update</a><br>`
   : '';
 
 const html = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(subject)}</title>
-<style>@media only screen and (max-width:560px){.col{display:block!important;width:100%!important;padding:0 0 12px 0!important}.hide-sm{display:none!important}.strip-cell{padding:0 2px!important}.px{padding-left:12px!important;padding-right:12px!important}.outer{padding:12px 4px!important}td,div,span{overflow-wrap:anywhere;word-break:break-word}}</style></head>
-<body style="margin:0;padding:0;background:#eef1f6;font-family:${FONT};-webkit-font-smoothing:antialiased">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#eef1f6">
-<tr><td align="center" class="outer" style="padding:28px 10px">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:620px;background:#f8fafc;border-radius:20px;font-family:${FONT}">
-  <tr><td style="background:#0b1220;background-image:linear-gradient(135deg,#0b1220 0%,#14213d 60%,#1d2f57 100%);border-radius:20px 20px 0 0;padding:28px 24px 22px" class="px">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-      <td valign="top">
-        <div style="display:inline-block;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#ff9d7a;background:rgba(255,109,90,.14);padding:5px 10px;border-radius:999px">🛡️ n8n security scorecard</div>
-        <div style="font-size:26px;line-height:32px;font-weight:800;color:#ffffff;padding-top:14px;letter-spacing:-.01em">${esc(instance)}</div>
-        <div style="font-size:13px;color:#8b98b0;padding-top:4px">${esc(today)}${version ? ` · n8n ${esc(version)}` : ''}</div>
-        <div style="font-size:15px;font-weight:700;color:${STATUS[worst].c};padding-top:14px">${STATUS[worst].icon}&nbsp; ${verdict}</div>
-      </td>
-      <td width="120" valign="top" class="hide-sm">${ring}</td>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark">
+<title>${esc(subject)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark}
+@media only screen and (max-width:560px){.col{display:block!important;width:100%!important;padding:0 0 10px 0!important}.px{padding-left:16px!important;padding-right:16px!important}.outer{padding:10px 4px!important}.big{font-size:52px!important;line-height:50px!important}.hl{height:auto!important}td,div,span{overflow-wrap:anywhere;word-break:break-word}}
+</style></head>
+<body style="margin:0;padding:0;background:${BG};font-family:${FONT};-webkit-font-smoothing:antialiased">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:${BG}">
+<tr><td align="center" class="outer" style="padding:32px 12px">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px;background:${PANEL};border:1px solid ${EDGE};border-radius:16px;font-family:${FONT}">
+  <tr><td class="px" style="padding:28px;border-radius:16px 16px 0 0;background:${PANEL};background-image:radial-gradient(120% 120% at 100% 0%,#1d1530 0%,${PANEL} 55%)">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td valign="middle" style="padding-right:8px">${img('shield', 16)}</td>
+      <td valign="middle" style="font-size:13px;color:#a1a1a1"><span style="color:${TEXT};font-weight:600">n8n security scorecard</span> &middot; ${esc(today)}</td>
     </tr></table>
-    <div style="padding-top:22px">${strip}</div>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:26px"><tr>
+      <td valign="bottom" class="big" style="font-size:64px;line-height:60px;font-weight:700;color:#ffffff;letter-spacing:-.04em;padding-right:16px;white-space:nowrap">${totals.PASS}<span style="color:#404040">/7</span></td>
+      <td valign="bottom" style="padding-bottom:4px">
+        <div style="font-size:15px;font-weight:600;color:${TEXT}">checks passing</div>
+        <div style="font-size:13px;color:${SUB}">${esc(instance)}${version ? ` &middot; n8n ${esc(version)}` : ''}</div>
+      </td>
+    </tr></table>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:18px"><tr>${dots}<td style="font-size:12.5px;color:${SUB};padding-left:6px">${verdict}</td></tr></table>
   </td></tr>
-  <tr><td style="padding:22px 24px 0">&nbsp;</td></tr>
   ${bannerHtml}
-  <tr><td style="padding:0 24px 8px">
+  <tr><td class="px" style="padding:4px 28px 4px">
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${gridRows.join('')}</table>
   </td></tr>
   ${failing.length ? `
-  <tr><td class="px" style="padding:10px 24px 12px">
-    <div style="font-size:20px;font-weight:800;color:${INK};letter-spacing:-.01em">🛠️&nbsp; What to fix</div>
-    <div style="font-size:13px;color:${MUTED};padding-top:4px">In checklist order. Tick them off and next week's scorecard shows the change.</div>
-  </td></tr>
-  <tr><td class="px" style="padding:4px 24px 14px">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${failing.map(fixBlock).join('')}</table>
+  <tr><td class="px" style="padding:8px 28px 18px">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${failing.map(fixCard).join('')}</table>
   </td></tr>` : `
-  <tr><td style="padding:6px 24px 26px" align="center">
-    <div style="font-size:15px;font-weight:700;color:${STATUS.PASS.ink}">🎉 Nothing to fix this week.</div>
+  <tr><td class="px" style="padding:6px 28px 26px">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#0b1a13;border:1px solid #17573b;border-radius:12px"><tr>
+      <td style="padding:14px 18px;font-size:13px;color:#3ecf8e;font-weight:600">&#10003;&nbsp; Nothing to fix this week.</td></tr></table>
   </td></tr>`}
 </table>
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:620px">
-  <tr><td align="center" style="padding:18px 24px 0;font-size:12px;line-height:19px;color:#94a3b8">
-    ${answeredLine}Based on the <a href="https://symplytics.com/blog/n8n-security-checklist" style="color:#64748b">n8n Security Checklist</a> by Symplytics (Diego Rodriguez).<br>
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px">
+  <tr><td align="center" style="padding:18px 24px 0;font-size:12px;line-height:19px;color:#6b6b6b">
+    ${answeredLine}Based on the <a href="https://symplytics.com/blog/n8n-security-checklist" style="color:#a1a1a1">n8n Security Checklist</a> by Symplytics (Diego Rodriguez).<br>
     Independent build, not made by or affiliated with Symplytics.
   </td></tr>
 </table>
