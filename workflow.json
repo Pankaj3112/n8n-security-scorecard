@@ -1,0 +1,553 @@
+{
+  "name": "n8n Security Checklist Scorecard",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "2012985b-4310-5093-828a-f3c67db0811b",
+      "name": "Every Monday 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "237cc954-5b4f-5936-b3ef-3a4f74eac6f4",
+      "name": "Run now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ccd288bd-73eb-5221-9350-b91213a1267d",
+              "name": "n8nUrl",
+              "type": "string",
+              "value": "http://localhost:5678"
+            },
+            {
+              "id": "c9a7ab24-856d-52df-b7c1-8fff50760c5e",
+              "name": "instanceName",
+              "type": "string",
+              "value": "My n8n"
+            },
+            {
+              "id": "3397213e-6d94-5e74-947f-94ce24f54bcd",
+              "name": "emailTo",
+              "type": "string",
+              "value": "you@example.com"
+            },
+            {
+              "id": "71a5261d-8174-55e4-be29-b26d8d60246f",
+              "name": "emailFrom",
+              "type": "string",
+              "value": "n8n@example.com"
+            },
+            {
+              "id": "6bd25f34-a43d-5e46-82c3-352765e6ab0e",
+              "name": "maxOwnersAndAdmins",
+              "type": "number",
+              "value": 3
+            },
+            {
+              "id": "038a0d81-6c15-544f-8ede-1f2264c0c21a",
+              "name": "maxDaysBehindLatest",
+              "type": "number",
+              "value": 28
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "82d474b6-fe5e-5663-b4fc-edff239420be",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Settings').first().json.n8nUrl.replace(/\\/+$/, '') }}/api/v1/audit",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "n8nApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"additionalOptions\": { \"daysAbandonedWorkflow\": 90 }\n}",
+        "options": {}
+      },
+      "id": "544e2099-8036-5110-b54a-578af00294d4",
+      "name": "Run security audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "n8nApi": {
+          "name": "n8n API (this instance)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Settings').first().json.n8nUrl.replace(/\\/+$/, '') }}/api/v1/users",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "n8nApi",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "cursor",
+                    "value": "={{ $response.body.nextCursor }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextCursor }}",
+              "limitPagesFetched": true,
+              "maxRequests": 40
+            }
+          }
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "includeRole",
+              "value": "true"
+            },
+            {
+              "name": "limit",
+              "value": "250"
+            }
+          ]
+        }
+      },
+      "id": "5500e9cc-aa22-5a51-a75d-bdebab8c2369",
+      "name": "Get users",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "n8nApi": {
+          "name": "n8n API (this instance)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Settings').first().json.n8nUrl.replace(/\\/+$/, '') }}/api/v1/workflows",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "n8nApi",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "cursor",
+                    "value": "={{ $response.body.nextCursor }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextCursor }}",
+              "limitPagesFetched": true,
+              "maxRequests": 40
+            }
+          }
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "active",
+              "value": "true"
+            },
+            {
+              "name": "limit",
+              "value": "250"
+            }
+          ]
+        }
+      },
+      "id": "60f1cd8b-3853-5262-bfb3-7be4be02abcf",
+      "name": "Get active workflows",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "n8nApi": {
+          "name": "n8n API (this instance)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Settings').first().json.n8nUrl.replace(/\\/+$/, '') }}/api/v1/community-packages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "n8nApi",
+        "options": {}
+      },
+      "id": "30effaac-751e-5a92-abb7-181d00195139",
+      "name": "Get community packages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "n8nApi": {
+          "name": "n8n API (this instance)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Settings').first().json.n8nUrl.replace(/\\/+$/, '') }}/api/v1/settings/log-streaming/destinations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "n8nApi",
+        "options": {}
+      },
+      "id": "34e2cc75-08ce-576b-99d9-6591743a1a28",
+      "name": "Get log streaming destinations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "n8nApi": {
+          "name": "n8n API (this instance)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Settings').first().json.n8nUrl.replace(/\\/+$/, '') }}/",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "176e840e-96dc-5620-ab61-6baa46a187fb",
+      "name": "Get editor page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        300
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reads the running n8n version from the editor page.\n// The editor HTML carries a base64 JSON meta tag whose \"release\" is \"n8n@<version>\".\nconst page = $input.first().json;\nconst html = typeof page.data === 'string' ? page.data : '';\nlet version = null;\nconst m = html.match(/name=\"n8n:config:sentry\"\\s+content=\"([^\"]+)\"/);\nif (m) {\n  try {\n    const raw = typeof Buffer !== 'undefined'\n      ? Buffer.from(m[1], 'base64').toString('utf8')\n      : atob(m[1]);\n    const release = JSON.parse(raw).release || '';\n    const v = release.replace(/^n8n@/, '');\n    if (/^\\d+\\.\\d+\\.\\d+/.test(v)) version = v;\n  } catch (e) {\n    version = null;\n  }\n}\nreturn [{ json: { version } }];\n"
+      },
+      "id": "fcb0acbd-0e3a-51b3-b626-cae3a1e737f9",
+      "name": "Read version",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.n8n.io/api/versions/{{ $json.version }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "ea874ae0-ac4e-57f7-a2c7-76adfdc79fd1",
+      "name": "Check n8n releases",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        300
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the scorecard: maps the n8n API data onto the 7 checks of the\n// \"n8n Security Checklist for IT Teams\" and renders an HTML email + plain text.\n\nconst cfg = $('Settings').first().json;\nconst maxAdmins = Number(cfg.maxOwnersAndAdmins) || 3;\nconst maxBehindDays = Number(cfg.maxDaysBehindLatest) || 28;\n\n// ---------- helpers ----------\nconst items = (name) => {\n  try { return $(name).all().map((i) => i.json); } catch (e) { return []; }\n};\nconst errorOf = (list) => {\n  const bad = list.find((j) => j && j.error);\n  if (!bad) return null;\n  const e = bad.error;\n  return typeof e === 'string' ? e : (e.message || e.description || JSON.stringify(e)).slice(0, 200);\n};\nconst esc = (s) => String(s ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + 's')}`;\nconst daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);\n\n// ---------- data ----------\nconst auditItems = items('Run security audit');\nconst auditError = errorOf(auditItems);\nconst reports = auditError ? [] : auditItems.flatMap((j) => Object.values(j)).filter((r) => r && Array.isArray(r.sections));\nconst section = (risk, title) => {\n  for (const r of reports) if (r.risk === risk) for (const s of r.sections) if (s.title === title) return s;\n  return null;\n};\n\nconst userPages = items('Get users');\nconst usersError = errorOf(userPages);\nconst users = usersError ? [] : userPages.flatMap((p) => p.data || []);\n\nconst wfPages = items('Get active workflows');\nconst workflowsError = errorOf(wfPages);\nconst workflows = workflowsError ? [] : wfPages.flatMap((p) => p.data || []).filter((w) => w.active && !w.isArchived);\n\nconst pkgItems = items('Get community packages');\nconst pkgError = errorOf(pkgItems);\nconst packages = pkgError ? [] : pkgItems.filter((p) => p && p.packageName);\n\nconst logItems = items('Get log streaming destinations');\nconst logError = errorOf(logItems);\nconst logDestinations = logError ? [] : logItems.flatMap((p) => p.data || []);\n\nconst version = (items('Read version')[0] || {}).version || null;\nconst releaseItems = items('Check n8n releases');\nconst releasesError = errorOf(releaseItems);\nconst releases = releasesError ? [] : releaseItems.filter((r) => r && r.name);\n\nconst checks = [];\nconst add = (c) => checks.push({ n: checks.length + 1, ...c });\n\n// ---------- 1. Version ----------\n{\n  const outdated = section('instance', 'Outdated instance');\n  const found = [];\n  const todo = [];\n  let status;\n  if (version && releases.length) {\n    const current = releases.find((r) => r.name === version);\n    const newer = releases.filter((r) => r.name !== version)\n      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));\n    const security = newer.filter((r) => r.hasSecurityFix || r.hasSecurityIssue);\n    const insecureNow = current && current.hasSecurityIssue;\n    const latest = newer[newer.length - 1];\n    const behindDays = newer.length ? daysBetween(newer[0].createdAt, new Date().toISOString()) : 0;\n    found.push(`Running n8n ${version}.`);\n    if (!newer.length) {\n      found.push('This is the latest release.');\n    } else {\n      found.push(`${plural(newer.length, 'newer release')} available (latest ${latest.name}). The first one came out ${plural(behindDays, 'day')} ago.`);\n    }\n    if (security.length) found.push(`Security fixes in: ${security.map((r) => r.name).join(', ')}.`);\n    if (insecureNow) found.push('n8n flags the running version as having a known security issue.');\n    status = (security.length || insecureNow || behindDays > maxBehindDays) ? 'FAIL' : 'PASS';\n    if (status === 'FAIL') todo.push(`Upgrade to ${latest ? latest.name : 'the latest release'}. Back up the database and keep the encryption key at hand first.`);\n    todo.push('Have someone read the release notes weekly so security releases land within days.');\n  } else if (outdated) {\n    status = 'FAIL';\n    found.push(outdated.description);\n    todo.push('Upgrade to the latest release. Back up the database and keep the encryption key at hand first.');\n  } else {\n    status = 'MANUAL';\n    found.push(version ? `Running n8n ${version}. Could not reach api.n8n.io to compare releases.` : 'Could not read the running version.');\n    todo.push('Is this instance within a few weeks of the latest n8n release, with every security release applied?');\n  }\n  add({ name: 'Version', goal: 'Within a few weeks of the current release; every security release applied.', status, found, todo });\n}\n\n// ---------- 2. Exposure ----------\n{\n  const PUBLIC_TRIGGERS = {\n    'n8n-nodes-base.webhook': 'Webhook',\n    'n8n-nodes-base.formTrigger': 'Form',\n    '@n8n/n8n-nodes-langchain.mcpTrigger': 'MCP Server',\n    '@n8n/n8n-nodes-langchain.chatTrigger': 'Chat',\n  };\n  // Webhooks the audit considers protected because the next node validates the payload.\n  const auditOpen = new Set(((section('instance', 'Unprotected webhooks in instance') || {}).location || [])\n    .map((l) => `${l.workflowId}/${l.nodeId}`));\n  const open = [];\n  const validated = [];\n  const secured = [];\n  for (const w of workflows) {\n    const nodes = (w.activeVersion && w.activeVersion.nodes) || w.nodes || [];\n    for (const node of nodes) {\n      const kind = PUBLIC_TRIGGERS[node.type];\n      if (!kind || node.disabled) continue;\n      const p = node.parameters || {};\n      if (kind === 'Chat' && p.public !== true) continue; // hosted chat is only public when \"Make Chat Publicly Available\" is on\n      const auth = p.authentication || 'none';\n      const label = `${w.name} → ${node.name} (${kind}${p.path ? `, /${p.path}` : ''})`;\n      if (auth !== 'none') secured.push(label);\n      else if (kind === 'Webhook' && !auditOpen.has(`${w.id}/${node.id}`)) validated.push(label);\n      else open.push(label);\n    }\n  }\n  const found = [];\n  const todo = [];\n  let status;\n  if (workflowsError) {\n    status = 'MANUAL';\n    found.push(`Could not list workflows: ${workflowsError}`);\n    todo.push('List every active webhook, form, chat and MCP Server Trigger by hand and confirm each one authenticates.');\n  } else {\n    const total = open.length + validated.length + secured.length;\n    found.push(`${plural(total, 'public trigger')} in ${plural(workflows.length, 'active workflow')}; ${secured.length} with authentication.`);\n    for (const o of open) found.push(`No authentication: ${o}`);\n    for (const v of validated) found.push(`No authentication, payload checked in the next node: ${v}`);\n    status = open.length ? 'FAIL' : 'PASS';\n    if (open.length) todo.push('Set Authentication on each of these (header auth with a shared secret is the cheap option), or deactivate the ones that should not be public. MCP Server Triggers need auth and a narrow set of tools.');\n    if (validated.length) todo.push('Confirm the next-node check really verifies a signature or secret.');\n    todo.push('Is the editor behind a VPN or an IP allow-list at the reverse proxy?');\n  }\n  add({ name: 'Exposure', goal: 'Only the webhooks, forms and MCP endpoints that need to be public are public, and each authenticates.', status, found, todo });\n}\n\n// ---------- 3. Credentials ----------\n{\n  const found = [];\n  const notUsed = section('credentials', 'Credentials not used in any workflow');\n  const notActive = section('credentials', 'Credentials not used in any active workflow');\n  const notRecent = section('credentials', 'Credentials not used in recently executed workflows');\n  const names = (s) => ((s && s.location) || []).map((l) => l.name);\n  if (auditError) found.push(`Security audit failed: ${auditError}`);\n  else {\n    const unused = names(notUsed);\n    const inactive = names(notActive).filter((n) => !unused.includes(n));\n    const stale = names(notRecent).filter((n) => !unused.includes(n) && !inactive.includes(n));\n    if (unused.length) found.push(`Not used in any workflow: ${unused.join(', ')}.`);\n    if (inactive.length) found.push(`Only used in inactive workflows: ${inactive.join(', ')}.`);\n    if (stale.length) found.push(`Not used in a run in the last 90 days: ${stale.join(', ')}.`);\n    if (!unused.length && !inactive.length && !stale.length) found.push('Every credential is in active, recent use.');\n  }\n  const todo = [\n    'Was N8N_ENCRYPTION_KEY set by you (not auto-generated), and is a copy stored off the server, in a password manager or secrets store?',\n    'Is each credential scoped to what its workflow needs (for example a read-only database user)?',\n  ];\n  if (found.some((f) => f.startsWith('Not used') || f.startsWith('Only used'))) todo.unshift('Delete the credentials you no longer need.');\n  add({ name: 'Credentials', goal: 'Encryption key set by you and stored off the server; tokens scoped to what each workflow needs.', status: 'MANUAL', found, todo });\n}\n\n// ---------- 4. Access ----------\n{\n  const found = [];\n  const todo = [];\n  let status;\n  if (usersError) {\n    status = 'MANUAL';\n    found.push(`Could not list users: ${usersError}`);\n    todo.push('Count owners and admins by hand and confirm each is a named person with 2FA.');\n  } else {\n    const active = users.filter((u) => !u.isPending && !u.disabled);\n    const admins = active.filter((u) => u.role === 'global:owner' || u.role === 'global:admin');\n    const adminsNo2fa = admins.filter((u) => !u.mfaEnabled);\n    const othersNo2fa = active.filter((u) => !admins.includes(u) && !u.mfaEnabled);\n    const SHARED = /^(admin|administrator|ops|devops|it|team|shared|info|automation|automations|n8n|service|svc|bot|integrations?|support|dev|test|office|hello)([._+-].*)?$/i;\n    const shared = active.filter((u) => u.email && SHARED.test(u.email.split('@')[0]));\n    const pending = users.filter((u) => u.isPending);\n    const who = (u) => u.email || `${u.firstName || ''} ${u.lastName || ''}`.trim();\n    found.push(`${plural(active.length, 'user')}; ${plural(admins.length, 'owner/admin', 'owners/admins')}: ${admins.map(who).join(', ')}.`);\n    if (adminsNo2fa.length) found.push(`Owners/admins without 2FA: ${adminsNo2fa.map(who).join(', ')}.`);\n    if (othersNo2fa.length) found.push(`Other users without 2FA: ${othersNo2fa.length}.`);\n    if (shared.length) found.push(`Looks like a shared login: ${shared.map(who).join(', ')}.`);\n    if (pending.length) found.push(`Pending invites: ${pending.map(who).join(', ')}.`);\n    const fail = admins.length > maxAdmins || adminsNo2fa.length || shared.some((u) => admins.includes(u));\n    status = fail ? 'FAIL' : (shared.length ? 'MANUAL' : 'PASS');\n    if (admins.length > maxAdmins) todo.push(`Cut owners/admins to ${maxAdmins} or fewer.`);\n    if (adminsNo2fa.length) todo.push('Turn on 2FA for every owner and admin (Settings > Personal > Enable 2FA).');\n    if (shared.length) todo.push('Replace shared logins with one named account per person.');\n    if (pending.length) todo.push('Cancel invites nobody is going to accept.');\n    if (!todo.length) todo.push('Nothing to do. Re-check when people join or leave.');\n  }\n  add({ name: 'Access', goal: 'Few owners and admins, each a named account with 2FA; no shared logins.', status, found, todo });\n}\n\n// ---------- 5. Code ----------\n{\n  // Probe: can a Code node read the server's environment? Blocked by default since n8n 2.0.\n  let envReadable;\n  try {\n    const v = $env.PATH ?? $env.HOME;\n    envReadable = v !== undefined && v !== null && !/denied/i.test(String(v));\n  } catch (e) {\n    envReadable = false;\n  }\n  const risky = (section('nodes', 'Official risky nodes') || {}).location || [];\n  const codeTypes = new Set(['n8n-nodes-base.code', 'n8n-nodes-base.function', 'n8n-nodes-base.functionItem', 'n8n-nodes-base.executeCommand', 'n8n-nodes-base.ssh']);\n  const codeWfs = [...new Set(risky.filter((l) => codeTypes.has(l.nodeType) && l.workflowId !== $workflow.id).map((l) => l.workflowName))];\n  const found = [\n    envReadable\n      ? 'A Code node in this run could read server environment variables.'\n      : 'A Code node in this run could not read server environment variables (blocked).',\n  ];\n  if (!auditError) found.push(`${plural(codeWfs.length, 'workflow')} ${codeWfs.length === 1 ? 'uses' : 'use'} Code, Execute Command or SSH nodes${codeWfs.length ? `: ${codeWfs.slice(0, 8).join(', ')}${codeWfs.length > 8 ? ', …' : ''}` : ''}.`);\n  const todo = [];\n  if (envReadable) todo.push('Set N8N_BLOCK_ENV_ACCESS_IN_NODE=true (the default since 2.0) so workflow code cannot read server secrets.');\n  todo.push('Do task runners run in external mode (N8N_RUNNERS_MODE=external, a separate runner container, matching N8N_RUNNERS_AUTH_TOKEN)? n8n logs a deprecation warning at startup while it runs in internal mode.');\n  add({ name: 'Code', goal: 'Task runners in external mode; N8N_BLOCK_ENV_ACCESS_IN_NODE left at true.', status: envReadable ? 'FAIL' : 'MANUAL', found, todo });\n}\n\n// ---------- 6. Community nodes ----------\n{\n  const found = [];\n  const todo = [];\n  let status;\n  const settings = (section('instance', 'Security settings') || {}).settings || {};\n  const enabled = settings.features ? settings.features.communityPackagesEnabled : undefined;\n  const auditCommunity = ((section('nodes', 'Community nodes') || {}).location || []).map((l) => l.nodeType);\n  if (pkgError && !auditCommunity.length) {\n    if (enabled === false) {\n      status = 'PASS';\n      found.push('Community packages are turned off on this instance.');\n    } else {\n      status = 'MANUAL';\n      found.push(`Could not list community packages: ${pkgError}`);\n      todo.push('Check Settings > Community nodes by hand.');\n    }\n  } else if (!packages.length && !auditCommunity.length) {\n    status = 'PASS';\n    found.push('No community packages installed.');\n  } else {\n    // Which installed packages are used by any workflow?\n    const usedTypes = new Set();\n    for (const w of wfPages.flatMap((p) => p.data || [])) {\n      for (const n of ((w.activeVersion && w.activeVersion.nodes) || w.nodes || [])) usedTypes.add(n.type);\n    }\n    const pkgs = packages.length ? packages : [...new Set(auditCommunity.map((t) => t.split('.')[0]))].map((name) => ({ packageName: name }));\n    const unused = [];\n    for (const p of pkgs) {\n      const types = (p.installedNodes || []).map((n) => n.type);\n      const inUse = types.length ? types.some((t) => usedTypes.has(t)) : auditCommunity.some((t) => t.startsWith(p.packageName + '.'));\n      const update = p.updateAvailable ? `, update to ${p.updateAvailable} available` : '';\n      found.push(`${p.packageName}${p.installedVersion ? ` ${p.installedVersion}` : ''}${p.authorName ? ` by ${p.authorName}` : ''}${inUse ? '' : ', not used in any active workflow'}${update}.`);\n      if (!inUse) unused.push(p.packageName);\n    }\n    status = unused.length ? 'FAIL' : 'MANUAL';\n    if (unused.length) todo.push(`Uninstall what nothing uses: ${unused.join(', ')}.`);\n    todo.push('For each package: who maintains it, when was it last updated, and does a built-in node now do the same job? Remove any you cannot justify.');\n  }\n  if (enabled !== false) todo.push('Is N8N_UNVERIFIED_PACKAGES_ENABLED=false set, so only verified packages can be installed?');\n  add({ name: 'Community nodes', goal: 'Each one reviewed, with a reason to keep it.', status, found, todo });\n}\n\n// ---------- 7. Recovery and logs ----------\n{\n  const found = [];\n  if (logError) {\n    found.push(/40[34]|licen|forbidden/i.test(logError)\n      ? 'Log streaming is not available on this plan (it is a paid feature), so the API cannot see where logs go.'\n      : `Could not read log streaming settings: ${logError}`);\n  } else {\n    const on = logDestinations.filter((d) => d.enabled !== false);\n    found.push(on.length\n      ? `Log streaming to: ${on.map((d) => d.label || d.__type || 'destination').join(', ')}.`\n      : 'No log streaming destination is set up.');\n  }\n  found.push('Backups and restores are outside what the n8n API can see.');\n  const todo = [\n    'Is the database backed up on a schedule and copied off the server?',\n    'Has a backup been restored on another machine at least once, with the encryption key at hand?',\n    'Who reviews the n8n logs, and how often?',\n  ];\n  add({ name: 'Recovery and logs', goal: 'A backup restored at least once; logs kept somewhere someone looks.', status: 'MANUAL', found, todo });\n}\n\n// ---------- render ----------\nconst count = (s) => checks.filter((c) => c.status === s).length;\nconst totals = { PASS: count('PASS'), FAIL: count('FAIL'), MANUAL: count('MANUAL') };\nconst instance = cfg.instanceName || cfg.n8nUrl;\nconst today = new Date().toISOString().slice(0, 10);\nconst subject = `n8n security scorecard for ${instance}: ${totals.FAIL} fail, ${totals.PASS} pass, ${totals.MANUAL} to check by hand`;\n\nconst STATUS = {\n  PASS: { bg: '#e7f6ec', fg: '#1a7f37', label: 'PASS' },\n  FAIL: { bg: '#fdecea', fg: '#c62828', label: 'FAIL' },\n  MANUAL: { bg: '#fff4e0', fg: '#9a6700', label: 'CHECK' },\n};\nconst pill = (s) => `<span style=\"display:inline-block;padding:3px 10px;border-radius:999px;background:${STATUS[s].bg};color:${STATUS[s].fg};font-weight:700;font-size:12px;letter-spacing:.04em\">${STATUS[s].label}</span>`;\nconst list = (arr) => arr.length === 1\n  ? `<div>${esc(arr[0])}</div>`\n  : `<ul style=\"margin:0;padding-left:18px\">${arr.map((x) => `<li style=\"margin:0 0 4px\">${esc(x)}</li>`).join('')}</ul>`;\nconst td = 'padding:14px 12px;border-top:1px solid #e5e7eb;vertical-align:top;font-size:14px;line-height:1.45;color:#1f2328';\nconst rows = checks.map((c) => `\n  <tr>\n    <td style=\"${td};color:#6b7280;width:24px\">${c.n}</td>\n    <td style=\"${td};width:150px\"><div style=\"font-weight:600\">${esc(c.name)}</div><div style=\"color:#6b7280;font-size:12px;margin-top:4px\">${esc(c.goal)}</div></td>\n    <td style=\"${td};width:70px\">${pill(c.status)}</td>\n    <td style=\"${td}\">${list(c.found)}</td>\n    <td style=\"${td}\">${list(c.todo)}</td>\n  </tr>`).join('');\nconst tile = (s, label) => `<td style=\"padding:10px 16px;background:${STATUS[s].bg};border-radius:8px;text-align:center\"><div style=\"font-size:22px;font-weight:700;color:${STATUS[s].fg}\">${totals[s]}</div><div style=\"font-size:12px;color:${STATUS[s].fg}\">${label}</div></td>`;\n\nconst html = `<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>${esc(subject)}</title></head>\n<body style=\"margin:0;padding:24px;background:#f6f8fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif\">\n<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:960px;width:100%;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px\">\n  <tr><td style=\"padding:24px 24px 8px\">\n    <div style=\"font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em\">n8n security checklist scorecard</div>\n    <div style=\"font-size:22px;font-weight:700;color:#1f2328;margin-top:4px\">${esc(instance)}</div>\n    <div style=\"font-size:13px;color:#6b7280;margin-top:4px\">${today}${version ? ` · n8n ${esc(version)}` : ''}</div>\n  </td></tr>\n  <tr><td style=\"padding:12px 24px\">\n    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"8\" style=\"margin-left:-8px\"><tr>\n      ${tile('FAIL', 'fail')}${tile('PASS', 'pass')}${tile('MANUAL', 'check by hand')}\n    </tr></table>\n  </td></tr>\n  <tr><td style=\"padding:0 12px 8px\">\n    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;border-collapse:collapse\">\n      <tr>\n        <th style=\"text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600\">#</th>\n        <th style=\"text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600\">Check</th>\n        <th style=\"text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600\">Status</th>\n        <th style=\"text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600\">What we found</th>\n        <th style=\"text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;font-weight:600\">What to do</th>\n      </tr>\n      ${rows}\n    </table>\n  </td></tr>\n  <tr><td style=\"padding:16px 24px 24px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;line-height:1.5\">\n    CHECK means the n8n API cannot see it; answer the questions in that row yourself.\n    The checks follow Diego Rodriguez's <a href=\"https://symplytics.com/blog/n8n-security-checklist\" style=\"color:#0969da\">n8n Security Checklist for IT Teams</a>.\n    This workflow is an independent build and is not made by or affiliated with the checklist's authors.\n  </td></tr>\n</table>\n</body></html>`;\n\nconst icon = { PASS: '✅', FAIL: '❌', MANUAL: '❓' };\nconst text = [\n  `*n8n security scorecard: ${instance}* (${today}${version ? `, n8n ${version}` : ''})`,\n  `${totals.FAIL} fail · ${totals.PASS} pass · ${totals.MANUAL} to check by hand`,\n  '',\n  ...checks.map((c) => `${icon[c.status]} *${c.n}. ${c.name}*: ${c.found.join(' ')}`),\n].join('\\n');\n\nreturn [{ json: { subject, html, text, totals, checks } }];\n"
+      },
+      "id": "1aa4d8a8-1d7d-5202-a9eb-34c0801cf9aa",
+      "name": "Build scorecard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        300
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('Settings').first().json.emailFrom }}",
+        "toEmail": "={{ $('Settings').first().json.emailTo }}",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "8efb6781-1705-5a5e-b4e8-9de590fea282",
+      "name": "Send scorecard email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2660,
+        200
+      ],
+      "credentials": {
+        "smtp": {
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#n8n-security"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "id": "4549e563-912d-5bcc-93e4-226e20bc6831",
+      "name": "Post to Slack (optional)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        2660,
+        400
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## n8n Security Checklist Scorecard\nRuns the 7 checks from Diego Rodriguez's *n8n Security Checklist for IT Teams* against this instance and emails a scorecard.\n\n**Setup**\n1. Settings > n8n API: create an API key.\n2. Open any HTTP node named *Get …* and create an **n8n API** credential (API key + Base URL `<your n8n URL>/api/v1`). All API nodes share it.\n3. Edit **Settings**: your n8n URL, instance name, email to/from.\n4. Set an SMTP credential on **Send scorecard email** (or enable the Slack node).\n5. Click *Execute workflow*, then publish to get the weekly run.",
+        "height": 380,
+        "width": 420,
+        "color": 4
+      },
+      "id": "f8dc6f1e-f83a-59a8-ad5f-801c684008cd",
+      "name": "Read me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Every Monday 08:00": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Run security audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run security audit": {
+      "main": [
+        [
+          {
+            "node": "Get users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get users": {
+      "main": [
+        [
+          {
+            "node": "Get active workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get active workflows": {
+      "main": [
+        [
+          {
+            "node": "Get community packages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get community packages": {
+      "main": [
+        [
+          {
+            "node": "Get log streaming destinations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get log streaming destinations": {
+      "main": [
+        [
+          {
+            "node": "Get editor page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get editor page": {
+      "main": [
+        [
+          {
+            "node": "Read version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read version": {
+      "main": [
+        [
+          {
+            "node": "Check n8n releases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check n8n releases": {
+      "main": [
+        [
+          {
+            "node": "Build scorecard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build scorecard": {
+      "main": [
+        [
+          {
+            "node": "Send scorecard email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to Slack (optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
